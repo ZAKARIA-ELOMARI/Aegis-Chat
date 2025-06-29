@@ -111,3 +111,50 @@ exports.login = async (req, res) => {
   }
 };
 
+// @desc   Set the initial password for a new user
+// @route  POST /api/auth/set-initial-password
+// @access Public
+exports.setInitialPassword = async (req, res) => {
+  try {
+    const { username, tempPassword, newPassword } = req.body;
+
+    // 1. Basic validation
+    if (!username || !tempPassword || !newPassword) {
+      return res.status(400).json({ message: 'Please provide username, temporary password, and new password.' });
+    }
+
+    // 2. Find the user
+    const user = await User.findOne({ username });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Check if user account is active
+    if (user.status === 'deactivated') {
+      return res.status(403).json({ message: 'Your account has been deactivated. Please contact an administrator.' });
+    }
+    if (user.status === 'pending') {
+        return res.status(403).json({ message: 'Your account is pending activation. Please set your initial password.' });
+    }
+
+    // 4. Verify the temporary password
+    const isMatch = await bcrypt.compare(tempPassword, user.passwordHash);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'The temporary password is incorrect.' });
+    }
+
+    // 5. Hash the new password and update the user
+    const salt = await bcrypt.genSalt(10);
+    const newPasswordHash = await bcrypt.hash(newPassword, salt);
+
+    user.passwordHash = newPasswordHash;
+    user.status = 'active'; // Activate the user!
+    await user.save();
+
+    res.status(200).json({ message: 'Password has been updated successfully. You can now log in with your new password.' });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error during password update.' });
+  }
+};

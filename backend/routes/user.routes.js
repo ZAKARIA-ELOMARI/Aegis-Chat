@@ -8,5 +8,7 @@ const auth = require('../middleware/auth.middleware'); // <-- Import our gatekee
 // The request will be processed by auth() FIRST. If it calls next(), THEN getAllUsers() will run.
 router.get('/', auth, getAllUsers);
 
-module.exports = router;
 router.post('/key', auth, setPublicKey);
+
+
+module.exports = router;

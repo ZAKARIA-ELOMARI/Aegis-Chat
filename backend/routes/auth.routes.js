@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 // Import all necessary functions and middleware
-const { register, login } = require('../controllers/auth.controller');
+const { register, login, setInitialPassword } = require('../controllers/auth.controller');
 const auth = require('../middleware/auth.middleware');
 const isAdmin = require('../middleware/admin.middleware'); // <-- 1. Import isAdmin
 
@@ -12,5 +12,8 @@ router.post('/register', auth, isAdmin, register); // <-- 2. Apply both middlewa
 
 // The '/login' route remains public
 router.post('/login', login);
+
+// Set Initial Password route
+router.post('/set-initial-password', setInitialPassword); // <-- ADD THIS LINE
 
 module.exports = router;
