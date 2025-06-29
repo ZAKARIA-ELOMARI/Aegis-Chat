@@ -21,7 +21,7 @@ const userSchema = new mongoose.Schema({
   status: {
     type: String,
     required: true,
-    enum: ['pending', 'active'], // 'pending' for new users, 'active' after first login
+    enum: ['pending', 'active', 'deactivated'], // 'pending' for new users, 'active' after first login
     default: 'pending'
   },
   publicKey: {
