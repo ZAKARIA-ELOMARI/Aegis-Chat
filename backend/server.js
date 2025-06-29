@@ -98,7 +98,7 @@ app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/users', require('./routes/user.routes.js'));
 app.use('/api/messages', require('./routes/message.routes.js')); // <-- ADD THIS LINE
 app.use('/api/files', require('./routes/file.routes.js')); // <-- ADD THIS LINE
-
+app.use('/api/ai', require('./routes/ai.routes.js'));
 
 
 const PORT = process.env.PORT || 8000;
