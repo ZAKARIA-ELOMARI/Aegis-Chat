@@ -1,13 +1,16 @@
 const express = require('express');
 const router = express.Router();
 
-// Import both controller functions
+// Import all necessary functions and middleware
 const { register, login } = require('../controllers/auth.controller');
+const auth = require('../middleware/auth.middleware');
+const isAdmin = require('../middleware/admin.middleware'); // <-- 1. Import isAdmin
 
-// Register route
-router.post('/register', register);
+// The '/register' route is now protected by a CHAIN of middleware.
+// A request must pass 'auth' first, then 'isAdmin', before reaching the 'register' controller.
+router.post('/register', auth, isAdmin, register); // <-- 2. Apply both middleware
 
-// Login route <-- ADD THIS LINE
+// The '/login' route remains public
 router.post('/login', login);
 
 module.exports = router;
