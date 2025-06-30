@@ -4,16 +4,16 @@ const router = express.Router();
 // Import all necessary functions and middleware
 const { register, login, setInitialPassword } = require('../controllers/auth.controller');
 const auth = require('../middleware/auth.middleware');
-const isAdmin = require('../middleware/admin.middleware'); // <-- 1. Import isAdmin
+const isAdmin = require('../middleware/admin.middleware');
+const { authLimiter } = require('../middleware/rateLimiter.middleware'); 
+
 
 // The '/register' route is now protected by a CHAIN of middleware.
 // A request must pass 'auth' first, then 'isAdmin', before reaching the 'register' controller.
-router.post('/register', auth, isAdmin, register); // <-- 2. Apply both middleware
+router.post('/register', authLimiter, auth, isAdmin, register);
 
-// The '/login' route remains public
-router.post('/login', login);
-
-// Set Initial Password route
-router.post('/set-initial-password', setInitialPassword); // <-- ADD THIS LINE
+// Apply the limiter specifically to password-handling routes
+router.post('/login', authLimiter, login);
+router.post('/set-initial-password', authLimiter, setInitialPassword);
 
 module.exports = router;
