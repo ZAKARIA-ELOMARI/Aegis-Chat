@@ -2,6 +2,7 @@ const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
 const logger = require('../config/logger');
 const mongoose = require('mongoose');
+const Message = require('../models/message.model')
 
 // @desc   Update a user's status (deactivate/reactivate)
 // @route  PUT /api/admin/users/:userId/status
@@ -81,4 +82,35 @@ exports.getSystemLogs = async (req, res) => {
         logger.error('Failed to fetch system logs', { error: error.message });
         res.status(500).json({ message: 'Server error while fetching logs.' });
     }
+};
+
+exports.broadcastMessage = async (req, res) => {
+  try {
+    const { content } = req.body;
+    const adminUserId = req.user.id; // from auth middleware
+
+    if (!content) {
+      return res.status(400).json({ message: 'Broadcast content cannot be empty.' });
+    }
+
+    // 1. Save the broadcast message to the database for historical record
+    const broadcast = new Message({
+      sender: adminUserId,
+      content: content,
+      isBroadcast: true,
+    });
+    await broadcast.save();
+
+    // 2. Emit the message to all connected clients
+    req.io.emit('broadcastMessage', {
+      content: broadcast.content,
+      sender: adminUserId,
+      timestamp: broadcast.createdAt,
+    });
+
+    res.status(200).json({ message: 'Broadcast sent successfully.' });
+  } catch (error) {
+    logger.error('Failed to send broadcast message', { error: error.message });
+    res.status(500).json({ message: 'Server error during broadcast.' });
+  }
 };

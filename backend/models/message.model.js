@@ -9,7 +9,7 @@ const messageSchema = new mongoose.Schema({
   recipient: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
+    required: false,
   },
   content: {
     type: String, // This will eventually hold the E2EE encrypted content
@@ -18,8 +18,12 @@ const messageSchema = new mongoose.Schema({
   // We create a consistent ID for any conversation between two users
   conversationId: {
     type: String,
-    required: true,
+    required: false,
     index: true, // Indexing this field makes fetching conversations much faster
+  },
+  isBroadcast: { 
+    type: Boolean,
+    default: false,
   }
 }, {
   timestamps: true // Automatically adds createdAt and updatedAt fields

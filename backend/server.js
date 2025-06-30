@@ -1,10 +1,11 @@
 require('dotenv').config();
 const express = require('express');
-const http = require('http'); // <-- Import Node's built-in HTTP module
-const { Server } = require('socket.io'); // <-- Import the Server class from socket.io
+const http = require('http'); 
+const { Server } = require('socket.io'); 
 const connectDB = require('./config/db.config');
-const jwt = require('jsonwebtoken'); // <-- Make sure this is at the top of the file
-const cors = require('cors'); // <-- 1. IMPORT CORS
+const jwt = require('jsonwebtoken');
+const helmet = require('helmet');
+const cors = require('cors'); 
 const Message = require('./models/message.model');
 
 const morgan = require('morgan');
@@ -91,8 +92,14 @@ io.on('connection', (socket) => {
 
 
 // --- Middleware ---
+app.use(helmet());
 app.use(cors());
 app.use(express.json());
+const attachIo = (req, res, next) => {
+  req.io = io;
+  next();
+};
+app.use(attachIo);
 app.use(morgan('combined', { stream: logger.stream }));
 
 // --- Routes ---

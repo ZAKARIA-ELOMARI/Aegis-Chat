@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { updateUserStatus, resetUserPassword , getSystemLogs } = require('../controllers/admin.controller');
+const { updateUserStatus, resetUserPassword , getSystemLogs , broadcastMessage } = require('../controllers/admin.controller');
 const auth = require('../middleware/auth.middleware');
 const isAdmin = require('../middleware/admin.middleware');
 
@@ -11,5 +11,7 @@ router.put('/users/:userId/status', auth, isAdmin, updateUserStatus);
 router.post('/users/:userId/reset-password', auth, isAdmin, resetUserPassword);
 
 router.get('/logs', auth, isAdmin, getSystemLogs);
+
+router.post('/broadcast', auth, isAdmin, broadcastMessage);
 
 module.exports = router;
