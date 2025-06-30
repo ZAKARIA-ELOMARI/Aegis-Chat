@@ -27,7 +27,15 @@ const userSchema = new mongoose.Schema({
   publicKey: {
     type: String,
     default: null // It's null until the user's app provides it
-  }
+  },
+  twoFactorSecret: {
+    type: String,
+    default: null,
+  },
+  isTwoFactorEnabled: {
+    type: Boolean,
+    default: false,
+  },
 }, {
   // Adds 'createdAt' and 'updatedAt' timestamps automatically
   timestamps: true

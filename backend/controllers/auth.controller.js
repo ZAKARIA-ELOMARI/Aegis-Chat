@@ -1,6 +1,7 @@
 const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken'); // <-- Import the new library
+const speakeasy = require('speakeasy'); // <-- ADD this import
 const logger = require('../config/logger');
 
 // @desc   Register a new user (employee)
@@ -61,54 +62,85 @@ exports.register = async (req, res) => {
 // @route  POST /api/auth/login
 // @access Public
 exports.login = async (req, res) => {
-  try {
-    const { username, password } = req.body;
+    try {
+        const { username, password } = req.body;
+        const user = await User.findOne({ username });
 
-    // 1. Check if user exists
-    const user = await User.findOne({ username });
-    if (!user) {
-      // Use a generic error message for security
-      return res.status(401).json({ message: 'Invalid credentials.' });
-    }
+        if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+            return res.status(401).json({ message: 'Invalid credentials.' });
+        }
+        if (user.status !== 'active') {
+             return res.status(403).json({ message: `Account is not active. Current status: ${user.status}`});
+        }
 
-    // 2. Check if the provided password matches the stored hash
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!isMatch) {
-      // Use the same generic message
-      return res.status(401).json({ message: 'Invalid credentials.' });
-    }
+        // Check if 2FA is enabled for the user
+        if (user.isTwoFactorEnabled) {
+            // If yes, do not send the final token.
+            // Send a temporary token indicating a 2FA step is required.
+            const tempToken = jwt.sign(
+                { userId: user.id, isTwoFactorAuthenticated: false },
+                process.env.JWT_SECRET,
+                { expiresIn: '10m' } // This token is short-lived
+            );
+            return res.status(200).json({
+                message: "Please provide your 2FA token.",
+                twoFactorRequired: true,
+                tempToken: tempToken,
+            });
+        }
 
-    // 3. User is authenticated. Create a JWT.
-    const payload = {
-      user: {
-        id: user.id,      // Include user ID in the token
-        role: user.role   // Include user role in the token
-      },
-    };
-
-    jwt.sign(
-      payload,
-      process.env.JWT_SECRET, // Use the secret from our .env file
-      { expiresIn: '24h' },   // The token will be valid for 24 hours
-      (err, token) => {
-        if (err) throw err;
-        // 4. Send the token back to the client
+        // If 2FA is NOT enabled, log them in directly
+        const finalToken = jwt.sign(
+            { user: { id: user.id, role: user.role }, isTwoFactorAuthenticated: true },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
         res.status(200).json({
-          message: 'Login successful.',
-          token: token,
-          user: {
-            id: user.id,
-            username: user.username,
-            role: user.role
-          }
+            message: 'Login successful.',
+            token: finalToken,
+            user: { id: user.id, username: user.username, role: user.role }
         });
-      }
-    );
 
-  } catch (error) {
-    logger.error('Server error during user login:', { error: error.message, username: req.body.username });
-    res.status(500).json({ message: 'Server error during login.' });
-  }
+    } catch (error) {
+        logger.error('Login error', { error: error.message });
+        res.status(500).json({ message: 'Server error during login.' });
+    }
+};
+
+// NEW CONTROLLER for verifying the 2FA token after password login
+exports.verify2FAToken = async (req, res) => {
+    try {
+        const { token } = req.body;
+        // The JWT for this request is the short-lived one we sent from the /login endpoint
+        const tempUserId = req.user.id; // This comes from our standard 'auth' middleware
+
+        const user = await User.findById(tempUserId);
+        
+        const verified = speakeasy.totp.verify({
+            secret: user.twoFactorSecret,
+            encoding: 'base32',
+            token: token,
+        });
+
+        if (verified) {
+            // Token is valid. Issue the final, fully-authenticated JWT.
+            const finalToken = jwt.sign(
+                { user: { id: user.id, role: user.role }, isTwoFactorAuthenticated: true },
+                process.env.JWT_SECRET,
+                { expiresIn: '24h' }
+            );
+            res.status(200).json({
+                message: 'Login successful.',
+                token: finalToken,
+                user: { id: user.id, username: user.username, role: user.role }
+            });
+        } else {
+            res.status(400).json({ message: "Invalid 2FA token." });
+        }
+    } catch (error) {
+        logger.error('2FA verification error', { error: error.message });
+        res.status(500).json({ message: 'Server error during 2FA verification.' });
+    }
 };
 
 // @desc   Set the initial password for a new user

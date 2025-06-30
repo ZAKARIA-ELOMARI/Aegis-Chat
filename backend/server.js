@@ -135,7 +135,8 @@ app.use('/api/users', require('./routes/user.routes.js'));
 app.use('/api/messages', require('./routes/message.routes.js'));
 app.use('/api/files', require('./routes/file.routes.js'));
 app.use('/api/ai', require('./routes/ai.routes.js'));
-app.use('/api/admin', require('./routes/admin.routes.js')); // <-- CHECK FOR THIS LINE
+app.use('/api/admin', require('./routes/admin.routes.js')); 
+app.use('/api/2fa', require('./routes/twoFactor.routes.js'));
 
 const PORT = process.env.PORT || 8000;
 
