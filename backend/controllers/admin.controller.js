@@ -1,6 +1,7 @@
 const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
 const logger = require('../config/logger');
+const mongoose = require('mongoose');
 
 // @desc   Update a user's status (deactivate/reactivate)
 // @route  PUT /api/admin/users/:userId/status
@@ -61,3 +62,23 @@ exports.resetUserPassword = async (req, res) => {
       res.status(500).json({ message: 'Server error while resetting password.' });
     }
   };
+
+
+exports.getSystemLogs = async (req, res) => {
+    try {
+        const { page = 1, limit = 50 } = req.query; // Add pagination
+        const options = {
+            page: parseInt(page, 10),
+            limit: parseInt(limit, 10),
+            sort: { timestamp: -1 }, // Show newest logs first
+        };
+        // The 'logs' collection is not a Mongoose model, so we access it directly
+        const logCollection = mongoose.connection.db.collection('logs');
+        const logs = await logCollection.find({}).sort(options.sort).skip((options.page - 1) * options.limit).limit(options.limit).toArray();
+
+        res.status(200).json(logs);
+    } catch (error) {
+        logger.error('Failed to fetch system logs', { error: error.message });
+        res.status(500).json({ message: 'Server error while fetching logs.' });
+    }
+};
