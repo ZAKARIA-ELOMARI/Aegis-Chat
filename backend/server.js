@@ -7,7 +7,8 @@ const jwt = require('jsonwebtoken'); // <-- Make sure this is at the top of the 
 const cors = require('cors'); // <-- 1. IMPORT CORS
 const Message = require('./models/message.model');
 
-
+const morgan = require('morgan');
+const logger = require('./config/logger');
 
 // --- Database Connection ---
 connectDB();
@@ -92,6 +93,7 @@ io.on('connection', (socket) => {
 // --- Middleware ---
 app.use(cors());
 app.use(express.json());
+app.use(morgan('combined', { stream: logger.stream }));
 
 // --- Routes ---
 app.use('/api/auth', require('./routes/auth.routes'));
@@ -126,7 +128,7 @@ io.on('connection', (socket) => {
 
 
 // --- Start Server ---
-// We now listen on the 'server' object instead of the 'app' object
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}.`);
+  // We now listen on the 'server' object instead of the 'app' object
+  logger.info(`Server is running on port ${PORT}.`);
 });
