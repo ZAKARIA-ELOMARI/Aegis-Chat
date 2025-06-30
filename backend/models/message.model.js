@@ -12,7 +12,7 @@ const messageSchema = new mongoose.Schema({
     required: false,
   },
   content: {
-    type: Object,
+    type: String,
     required: true,
   },
   // We create a consistent ID for any conversation between two users

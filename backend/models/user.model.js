@@ -8,6 +8,13 @@ const userSchema = new mongoose.Schema({
     unique: true,   // Every username must be unique
     trim: true      // Removes any whitespace from the beginning and end
   },
+  email: {
+    type: String,
+    required: [true, 'Please provide an email.'],
+    unique: true,
+    lowercase: true, // Store emails in a consistent format
+    trim: true
+  },
   passwordHash: {
     type: String,
     required: true  // The hashed password is mandatory
@@ -24,6 +31,9 @@ const userSchema = new mongoose.Schema({
     enum: ['pending', 'active', 'deactivated'], // 'pending' for new users, 'active' after first login
     default: 'pending'
   },
+  passwordResetToken: String,
+  passwordResetExpires: Date,
+
   publicKey: {
     type: String,
     default: null // It's null until the user's app provides it
@@ -40,6 +50,22 @@ const userSchema = new mongoose.Schema({
   // Adds 'createdAt' and 'updatedAt' timestamps automatically
   timestamps: true
 });
+
+userSchema.methods.createPasswordResetToken = function() {
+  const resetToken = crypto.randomBytes(32).toString('hex');
+
+  this.passwordResetToken = crypto
+    .createHash('sha256')
+    .update(resetToken)
+    .digest('hex');
+
+  // Set the token to expire in 10 minutes
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+
+  // Return the unhashed token to be sent via email
+  return resetToken;
+};
+
 
 // Create the model from the schema
 const User = mongoose.model('User', userSchema);

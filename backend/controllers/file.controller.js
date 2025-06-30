@@ -3,6 +3,8 @@ const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const crypto = require('crypto');
 const { scanFileBuffer } = require('../services/malwareScanner.service');
 const logger = require('../config/logger');
+// Import the file-type library
+const { fileTypeFromBuffer } = require('file-type');
 
 // A simple utility function to create a SHA256 hash from a buffer
 const getBufferHash = (buffer) => {
@@ -17,6 +19,18 @@ exports.uploadAndScanFile = async (req, res) => {
     }
 
     try {
+
+        // --- NEW: Magic Number Analysis ---
+        // 1. Determine the actual file type from its binary data.
+        const fileTypeResult = await fileTypeFromBuffer(req.file.buffer);
+
+        // 2. Compare the detected MIME type with the one provided by the client.
+        // req.file.mimetype comes from the client's request.
+        if (!fileTypeResult || fileTypeResult.mime !== req.file.mimetype) {
+            logger.warn(`File type mismatch for user ${req.user?.id}. Declared: ${req.file.mimetype}, Detected: ${fileTypeResult?.mime}.`);
+            return res.status(400).json({ message: 'File type mismatch. Upload rejected.' });
+        }
+        // --- END NEW SECTION ---
 
         // 1. Get the initial hash of the file buffer as soon as we receive it.
         const initialHash = getBufferHash(req.file.buffer);

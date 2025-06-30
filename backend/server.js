@@ -71,14 +71,10 @@ io.on('connection', (socket) => {
     try {
       logger.info(`Received message from ${socket.user.id} to ${recipientId}`);
 
-      // E2EE FORMAT VALIDATION
-      // The 'content' should be an object, not a simple string.
-      // A typical E2EE payload might look like { ciphertext: "...", iv: "...", mac: "..." }
-      // We will perform a basic check to ensure it's an object with a 'ciphertext' property.
-      if (typeof content !== 'object' || content === null || !content.ciphertext) {
+      // VALIDATION: Ensure content is a non-empty string.
+      // The client will be responsible for creating the stringified, base64-encoded payload.
+      if (typeof content !== 'string' || content.length === 0) {
         logger.warn(`User ${socket.user.id} sent a message with an invalid format to ${recipientId}.`);
-        // Optionally, you could emit an error back to the sender.
-        // socket.emit('messageError', { message: 'Invalid message format. Content must be encrypted.' });
         return; // Stop processing the invalid message
       }
 

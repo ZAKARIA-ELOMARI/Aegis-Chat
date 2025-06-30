@@ -53,7 +53,7 @@ exports.resetUserPassword = async (req, res) => {
       await user.save();
   
       res.status(200).json({
-        message: 'User password has been reset successfully.',
+        message: `Password for user '${user.username}' has been reset. Please provide them with the new temporary password to complete the process.`,
         username: user.username,
         tempPassword: tempPassword
       });

@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { register, login, setInitialPassword } = require('../controllers/auth.controller');
+// Import the new controllers
+const { register, login, setInitialPassword, forgotPassword, resetPassword } = require('../controllers/auth.controller');
 const auth = require('../middleware/auth.middleware');
 const isAdmin = require('../middleware/admin.middleware');
 const { authLimiter } = require('../middleware/rateLimiter.middleware');
 
-// Import our new validation rules
 const {
   registerRules,
   loginRules,
@@ -14,7 +14,6 @@ const {
 } = require('../middleware/validators.middleware');
 
 
-// Apply validation rules as a chain of middleware
 router.post('/login',
   authLimiter,
   loginRules(),
@@ -37,5 +36,9 @@ router.post('/register',
   handleValidationErrors,
   register
 );
+
+// Add the new routes for password reset
+router.post('/forgot-password', authLimiter, forgotPassword);
+router.post('/reset-password/:token', authLimiter, resetPassword);
 
 module.exports = router;
