@@ -23,19 +23,24 @@ const options = {
   },
 };
 
-// Create a new Winston logger with the transports we defined
+// Create a transports array that always includes the console
+const transports = [
+  new winston.transports.Console(options.console),
+];
+
+// Only add MongoDB transport if NOT in test environment
+if (process.env.NODE_ENV !== 'test') {
+  transports.push(new winston.transports.MongoDB(options.mongodb));
+}
+
+// Create the logger with our conditional transports
 const logger = winston.createLogger({
-  transports: [
-    new winston.transports.Console(options.console),
-    new winston.transports.MongoDB(options.mongodb),
-  ],
-  exitOnError: false, // Do not exit on handled exceptions
+  transports,
+  exitOnError: false,
 });
 
-// Create a stream object with a 'write' function that will be used by morgan
 logger.stream = {
   write: function(message, encoding) {
-    // Use the 'info' log level so the output will be picked up by both transports
     logger.info(message.trim());
   },
 };
