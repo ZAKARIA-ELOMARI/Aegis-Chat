@@ -84,6 +84,18 @@
                 statusEl.textContent = `Connected (${socket.id})`;
                 connectBtn.textContent = 'Reconnect';
                 sendBtn.disabled = false;
+
+                // Listen for the online user list
+                socket.on('updateOnlineUsers', (users) => {
+                    console.log('Online users:', users);
+                    // In a real app, you would update the UI here
+                });
+
+                // Listen for typing indicators from other users
+                socket.on('typing', ({ senderId, isTyping }) => {
+                    console.log(`User ${senderId} is ${isTyping ? 'typing...' : 'stopped typing.'}`);
+                    // In a real app, you would show "typing..." in the chat window
+                });
             });
 
             socket.on('disconnect', () => {
@@ -113,46 +125,23 @@
             }
         });
 
-        connectBtn.addEventListener('click', () => {
-            if (socket) socket.disconnect();
-
-            // Connect to Socket.IO, passing the JWT in the 'auth' object
-            socket = io('http://localhost:8000', {
-            auth: { token: jwtToken }
-            });
-
-            socket.on('connect', () => {
-            statusEl.textContent = `Connected (${socket.id})`;
-            connectBtn.textContent = 'Reconnect';
-            sendBtn.disabled = false;
-            });
-
-            socket.on('disconnect', () => {
-            statusEl.textContent = 'Not Connected';
-            sendBtn.disabled = true;
-            });
-
-            socket.on('connect_error', (err) => {
-            alert('Connection Failed: ' + err.message);
-            });
-
-            // Listen for private messages from the server
-            socket.on('privateMessage', ({ content, senderId }) => {
-            const item = document.createElement('li');
-            item.textContent = `From ${senderId}: ${content}`;
-            messagesEl.appendChild(item);
-            window.scrollTo(0, document.body.scrollHeight);
-            });
-
-            // Listen for broadcast messages from the server
-            socket.on('broadcastMessage', ({ content, senderId, timestamp }) => {
-            const item = document.createElement('li');
-            item.style.backgroundColor = '#fffbe6'; // Highlight broadcast messages
-            item.style.fontWeight = 'bold';
-            item.textContent = `[BROADCAST] ${content}`;
-            messagesEl.appendChild(item);
-            window.scrollTo(0, document.body.scrollHeight);
-            });
+        // Add typing indicator functionality
+        const messageInput = document.getElementById('messageContent');
+        let typingTimer;
+        
+        messageInput.addEventListener('input', () => {
+            const recipientId = document.getElementById('recipientId').value;
+            if (recipientId && socket) {
+                socket.emit('typing', { recipientId, isTyping: true });
+                
+                // Clear existing timer
+                clearTimeout(typingTimer);
+                
+                // Set timer to send "stopped typing" after 1 second of inactivity
+                typingTimer = setTimeout(() => {
+                    socket.emit('typing', { recipientId, isTyping: false });
+                }, 1000);
+            }
         });
     </script>
 </body>

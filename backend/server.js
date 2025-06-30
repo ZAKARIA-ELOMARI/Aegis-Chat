@@ -25,6 +25,8 @@ const io = new Server(server, {
   }
 });
 
+let onlineUsers = {};
+
 // --- Socket.IO Authentication Middleware ---
 io.use((socket, next) => {
   // The client will send the token in the 'auth' object
@@ -50,6 +52,15 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   // This code now only runs for AUTHENTICATED users
   logger.info(`Authenticated user connected: ${socket.user.id} with socket ID: ${socket.id}`);
+
+  // --- Start of new logic ---
+  // Add user to our tracking object
+  logger.info(`User ${socket.user.id} connected. Adding to online users.`);
+  onlineUsers[socket.user.id] = socket.id;
+
+  // Emit the updated list of online users to everyone
+  io.emit('updateOnlineUsers', Object.keys(onlineUsers));
+  // --- End of new logic ---
 
   // Join a private room based on their user ID
   socket.join(socket.user.id);
@@ -85,8 +96,24 @@ io.on('connection', (socket) => {
     }
   });
 
+  // --- Add a new listener for typing indicators ---
+  socket.on('typing', ({ recipientId, isTyping }) => {
+    // Forward the typing status directly to the recipient's room
+    io.to(recipientId).emit('typing', { senderId: socket.user.id, isTyping });
+  });
+  // --- End of new listener ---
+
   socket.on('disconnect', () => {
     logger.info(`User ${socket.user.id} disconnected.`);
+    
+    // --- Start of new logic ---
+    // Remove user from our tracking object
+    logger.info(`User ${socket.user.id} disconnected. Removing from online users.`);
+    delete onlineUsers[socket.user.id];
+    
+    // Emit the updated list of online users to everyone
+    io.emit('updateOnlineUsers', Object.keys(onlineUsers));
+    // --- End of new logic ---
   });
 });
 
