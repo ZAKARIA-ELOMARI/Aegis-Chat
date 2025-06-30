@@ -36,9 +36,13 @@ const setInitialPasswordRules = () => {
       body('username').notEmpty().withMessage('Username is required.'),
       body('tempPassword').notEmpty().withMessage('Temporary password is required.'),
       body('newPassword')
-        .isLength({ min: 8 }).withMessage('New password must be at least 8 characters long.')
-        .matches(/\d/).withMessage('Password must contain a number.')
-        .matches(/[a-zA-Z]/).withMessage('Password must contain a letter.'),
+        .isStrongPassword({
+            minLength: 8,
+            minLowercase: 1,
+            minUppercase: 1,
+            minNumbers: 1,
+            minSymbols: 1,
+        }).withMessage('Password must be at least 8 characters long and contain at least one lowercase letter, one uppercase letter, one number, and one special character.'),
     ];
 };
 

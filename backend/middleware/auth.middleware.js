@@ -1,4 +1,6 @@
 const jwt = require('jsonwebtoken');
+const User = require('../models/user.model');
+const TokenBlocklist = require('../models/tokenBlocklist.model');
 
 // This middleware function is our "gatekeeper"
 const auth = (req, res, next) => {
@@ -27,6 +29,37 @@ const auth = (req, res, next) => {
   } catch (err) {
     res.status(401).json({ message: 'Token is not valid.' });
   }
+};
+
+exports.protect = async (req, res, next) => {
+    let token;
+
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+        try {
+            token = req.headers.authorization.split(' ')[1];
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            
+            // --- CHANGE START ---
+            // Check if the token has been blocklisted
+            const isBlocked = await TokenBlocklist.findOne({ jti: decoded.jti });
+            if (isBlocked) {
+                return res.status(401).json({ message: 'Not authorized, token is invalid.' });
+            }
+            // --- CHANGE END ---
+
+            req.user = await User.findById(decoded.sub).select('-password');
+            if (!req.user) {
+                return res.status(401).json({ message: 'The user belonging to this token does no longer exist.' });
+            }
+            next();
+        } catch (error) {
+            return res.status(401).json({ message: 'Not authorized, token failed.' });
+        }
+    }
+
+    if (!token) {
+        return res.status(401).json({ message: 'Not authorized, no token.' });
+    }
 };
 
 module.exports = auth;

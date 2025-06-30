@@ -3,6 +3,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken'); // <-- Import the new library
 const speakeasy = require('speakeasy'); // <-- ADD this import
 const logger = require('../config/logger');
+const crypto = require('crypto');
+const TokenBlocklist = require('../models/tokenBlocklist.model'); 
+const { createToken, decodeToken } = require('../utils/jwt.utils');
 
 // @desc   Register a new user (employee)
 // @route  POST /api/auth/register
@@ -20,12 +23,11 @@ exports.register = async (req, res) => {
     // 2. Check if user already exists
     const userExists = await User.findOne({ username });
     if (userExists) {
-      return res.status(400).json({ message: 'User with that username already exists.' });
+      return res.status(400).json({ message: "This username is not available." });
     }
 
     // 3. Generate a secure temporary password
-    // For this example, a simple random string. In production, consider a stronger generator.
-    const tempPassword = Math.random().toString(36).slice(-8);
+    const tempPassword = crypto.randomBytes(8).toString('hex');
 
     // 4. Hash the temporary password
     const salt = await bcrypt.genSalt(10);
@@ -106,6 +108,29 @@ exports.login = async (req, res) => {
         res.status(500).json({ message: 'Server error during login.' });
     }
 };
+
+exports.logout = async (req, res, next) => {
+    try {
+        // --- CHANGE START ---
+
+        const token = req.headers.authorization.split(' ')[1];
+        const decoded = decodeToken(token); // Use a utility to decode the token without verifying (we already know it's valid from the auth middleware)
+        
+        const blocklistedToken = new TokenBlocklist({
+            jti: decoded.jti,
+            expiresAt: new Date(decoded.exp * 1000), // `exp` is in seconds, Date needs milliseconds
+        });
+
+        await blocklistedToken.save();
+
+        res.status(200).json({ message: "You have been successfully logged out." });
+
+        // --- CHANGE END ---
+    } catch (error) {
+        next(error);
+    }
+};
+
 
 // NEW CONTROLLER for verifying the 2FA token after password login
 exports.verify2FAToken = async (req, res) => {

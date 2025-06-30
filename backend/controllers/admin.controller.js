@@ -67,15 +67,25 @@ exports.resetUserPassword = async (req, res) => {
 
 exports.getSystemLogs = async (req, res) => {
     try {
-        const { page = 1, limit = 50 } = req.query; // Add pagination
+        // 1. Sanitize and validate pagination parameters from user input.
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 50;
+
+        // 2. Ensure values are positive and cap the limit to prevent abuse.
+        const pageNumber = Math.max(1, page);
+        const limitNumber = Math.max(1, Math.min(limit, 100)); // Cap limit at 100
+        const skip = (pageNumber - 1) * limitNumber;
+
         const options = {
-            page: parseInt(page, 10),
-            limit: parseInt(limit, 10),
             sort: { timestamp: -1 }, // Show newest logs first
+            skip: skip,
+            limit: limitNumber
         };
-        // The 'logs' collection is not a Mongoose model, so we access it directly
+        
         const logCollection = mongoose.connection.db.collection('logs');
-        const logs = await logCollection.find({}).sort(options.sort).skip((options.page - 1) * options.limit).limit(options.limit).toArray();
+        
+        // 3. Use the sanitized and capped values in the database query.
+        const logs = await logCollection.find({}, options).toArray();
 
         res.status(200).json(logs);
     } catch (error) {

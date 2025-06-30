@@ -68,29 +68,40 @@ io.on('connection', (socket) => {
 
   // Listen for a 'privateMessage' event
   socket.on('privateMessage', async ({ recipientId, content }) => {
-  try {
-    logger.info(`Private message from ${socket.user.id} to ${recipientId}: ${content}`);
+    try {
+      logger.info(`Received message from ${socket.user.id} to ${recipientId}`);
 
-    // Create a consistent conversation ID by sorting the two user IDs
-    // This ensures the ID is the same regardless of who sends the message
-    const conversationId = [socket.user.id, recipientId].sort().join('_');
+      // E2EE FORMAT VALIDATION
+      // The 'content' should be an object, not a simple string.
+      // A typical E2EE payload might look like { ciphertext: "...", iv: "...", mac: "..." }
+      // We will perform a basic check to ensure it's an object with a 'ciphertext' property.
+      if (typeof content !== 'object' || content === null || !content.ciphertext) {
+        logger.warn(`User ${socket.user.id} sent a message with an invalid format to ${recipientId}.`);
+        // Optionally, you could emit an error back to the sender.
+        // socket.emit('messageError', { message: 'Invalid message format. Content must be encrypted.' });
+        return; // Stop processing the invalid message
+      }
 
-    // Create a new message document
-    const message = new Message({
-      sender: socket.user.id,
-      recipient: recipientId,
-      content: content,
-      conversationId: conversationId
-    });
+      // Create a consistent conversation ID
+      const conversationId = [socket.user.id, recipientId].sort().join('_');
 
-    // Save the message to the database
-    await message.save();
+      // Create a new message document
+      const message = new Message({
+        sender: socket.user.id,
+        recipient: recipientId,
+        // The entire content object is saved. Your model's content field should be of type Object or Mixed.
+        content: content,
+        conversationId: conversationId
+      });
 
-    // Send the message only to the recipient's private room
-    io.to(recipientId).emit('privateMessage', {
-      content,
-      senderId: socket.user.id,
-    });
+      // Save the message to the database
+      await message.save();
+
+      // Forward the encrypted payload to the recipient's private room
+      io.to(recipientId).emit('privateMessage', {
+        content,
+        senderId: socket.user.id,
+      });
     } catch (error) {
       logger.error('Error handling private message:', { error: error.message, userId: socket.user.id, recipientId });
     }

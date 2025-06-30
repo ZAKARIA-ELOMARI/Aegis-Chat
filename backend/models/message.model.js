@@ -12,7 +12,7 @@ const messageSchema = new mongoose.Schema({
     required: false,
   },
   content: {
-    type: String, // This will eventually hold the E2EE encrypted content
+    type: Object,
     required: true,
   },
   // We create a consistent ID for any conversation between two users
