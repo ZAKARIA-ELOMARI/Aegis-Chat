@@ -1,19 +1,41 @@
 const express = require('express');
 const router = express.Router();
-
-// Import all necessary functions and middleware
 const { register, login, setInitialPassword } = require('../controllers/auth.controller');
 const auth = require('../middleware/auth.middleware');
 const isAdmin = require('../middleware/admin.middleware');
-const { authLimiter } = require('../middleware/rateLimiter.middleware'); 
+const { authLimiter } = require('../middleware/rateLimiter.middleware');
+
+// Import our new validation rules
+const {
+  registerRules,
+  loginRules,
+  setInitialPasswordRules,
+  handleValidationErrors,
+} = require('../middleware/validators.middleware');
 
 
-// The '/register' route is now protected by a CHAIN of middleware.
-// A request must pass 'auth' first, then 'isAdmin', before reaching the 'register' controller.
-router.post('/register', authLimiter, auth, isAdmin, register);
+// Apply validation rules as a chain of middleware
+router.post('/login',
+  authLimiter,
+  loginRules(),
+  handleValidationErrors,
+  login
+);
 
-// Apply the limiter specifically to password-handling routes
-router.post('/login', authLimiter, login);
-router.post('/set-initial-password', authLimiter, setInitialPassword);
+router.post('/set-initial-password',
+  authLimiter,
+  setInitialPasswordRules(),
+  handleValidationErrors,
+  setInitialPassword
+);
+
+router.post('/register',
+  authLimiter,
+  auth,
+  isAdmin,
+  registerRules(),
+  handleValidationErrors,
+  register
+);
 
 module.exports = router;
