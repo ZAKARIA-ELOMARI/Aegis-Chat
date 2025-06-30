@@ -1,4 +1,5 @@
 const User = require('../models/user.model');
+const logger = require('../config/logger');
 
 // @desc   Get all users (for the employee directory)
 // @route  GET /api/users
@@ -9,7 +10,7 @@ exports.getAllUsers = async (req, res) => {
     const users = await User.find().select('-passwordHash');
     res.json(users);
   } catch (err) {
-    console.error(err.message);
+    logger.error('Error retrieving all users:', { error: err.message, userId: req.user?.id });
     res.status(500).send('Server Error');
   }
 };
@@ -31,7 +32,7 @@ exports.setPublicKey = async (req, res) => {
 
     res.status(200).json({ message: 'Public key updated successfully.' });
   } catch (err) {
-    console.error(err.message);
+    logger.error('Error setting public key:', { error: err.message, userId: req.user?.id });
     res.status(500).send('Server Error');
   }
 };

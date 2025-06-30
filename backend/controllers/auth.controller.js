@@ -1,7 +1,7 @@
 const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken'); // <-- Import the new library
-
+const logger = require('../config/logger');
 
 // @desc   Register a new user (employee)
 // @route  POST /api/auth/register
@@ -51,7 +51,7 @@ exports.register = async (req, res) => {
     }
 
   } catch (error) {
-    console.error(error);
+    logger.error('Server error during user registration:', { error: error.message, username: req.body.username });
     res.status(500).json({ message: 'Server error during user registration.' });
   }
 };
@@ -106,7 +106,7 @@ exports.login = async (req, res) => {
     );
 
   } catch (error) {
-    console.error(error);
+    logger.error('Server error during user login:', { error: error.message, username: req.body.username });
     res.status(500).json({ message: 'Server error during login.' });
   }
 };
@@ -154,7 +154,7 @@ exports.setInitialPassword = async (req, res) => {
     res.status(200).json({ message: 'Password has been updated successfully. You can now log in with your new password.' });
 
   } catch (error) {
-    console.error(error);
+    logger.error('Server error during password update:', { error: error.message, username: req.body.username });
     res.status(500).json({ message: 'Server error during password update.' });
   }
 };

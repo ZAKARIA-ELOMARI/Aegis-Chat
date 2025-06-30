@@ -2,6 +2,7 @@ const minioClient = require('../config/minio.client.js');
 const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const crypto = require('crypto');
 const { scanFileBuffer } = require('../services/malwareScanner.service');
+const logger = require('../config/logger');
 
 exports.uploadAndScanFile = async (req, res) => {
   if (!req.file) {
@@ -44,7 +45,12 @@ exports.uploadAndScanFile = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('File upload pipeline failed:', error);
+    logger.error('File upload pipeline failed:', { 
+      error: error.message, 
+      fileName: req.file?.originalname, 
+      fileSize: req.file?.size,
+      userId: req.user?.id 
+    });
     res.status(500).json({ message: 'An error occurred during the file upload process.' });
   }
 };

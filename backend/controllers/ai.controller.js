@@ -1,4 +1,5 @@
 const OpenAI = require('openai');
+const logger = require('../config/logger');
 
 // Configure the OpenAI client with your API key from .env
 const openai = new OpenAI({
@@ -35,7 +36,7 @@ exports.askAIChatbot = async (req, res) => {
     res.status(200).json({ response: aiResponse });
 
   } catch (error) {
-    console.error('OpenAI API error:', error);
+    logger.error('OpenAI API request failed:', { error: error.message, prompt: req.body.prompt, userId: req.user?.id });
     res.status(500).json({ message: 'Failed to get a response from the AI assistant.' });
   }
 };

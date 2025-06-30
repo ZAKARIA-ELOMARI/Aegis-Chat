@@ -48,16 +48,16 @@ io.use((socket, next) => {
 // --- Socket.IO Connection Logic ---
 io.on('connection', (socket) => {
   // This code now only runs for AUTHENTICATED users
-  console.log(`Authenticated user connected: ${socket.user.id} with socket ID: ${socket.id}`);
+  logger.info(`Authenticated user connected: ${socket.user.id} with socket ID: ${socket.id}`);
 
   // Join a private room based on their user ID
   socket.join(socket.user.id);
-  console.log(`User ${socket.user.id} joined room ${socket.user.id}`);
+  logger.info(`User ${socket.user.id} joined room ${socket.user.id}`);
 
   // Listen for a 'privateMessage' event
   socket.on('privateMessage', async ({ recipientId, content }) => {
   try {
-    console.log(`Message from ${socket.user.id} to ${recipientId}: ${content}`);
+    logger.info(`Private message from ${socket.user.id} to ${recipientId}: ${content}`);
 
     // Create a consistent conversation ID by sorting the two user IDs
     // This ensures the ID is the same regardless of who sends the message
@@ -80,12 +80,12 @@ io.on('connection', (socket) => {
       senderId: socket.user.id,
     });
     } catch (error) {
-      console.error('Error handling private message:', error);
+      logger.error('Error handling private message:', { error: error.message, userId: socket.user.id, recipientId });
     }
   });
 
   socket.on('disconnect', () => {
-    console.log(`User ${socket.user.id} disconnected.`);
+    logger.info(`User ${socket.user.id} disconnected.`);
   });
 });
 
@@ -111,18 +111,18 @@ app.get('/', (req, res) => {
 
 // --- Socket.IO Connection Logic ---
 io.on('connection', (socket) => {
-  console.log(`A user connected with socket ID: ${socket.id}`);
+  logger.info(`A user connected with socket ID: ${socket.id}`);
 
   // Listen for a 'chatMessage' event from a client
   socket.on('chatMessage', (msg) => {
-    console.log('Message received: ' + msg);
+    logger.info('Message received: ' + msg);
     // Broadcast the message to ALL connected clients
     io.emit('chatMessage', msg);
   });
 
   // Listen for the built-in 'disconnect' event
   socket.on('disconnect', () => {
-    console.log(`User with socket ID ${socket.id} disconnected.`);
+    logger.info(`User with socket ID ${socket.id} disconnected.`);
   });
 });
 

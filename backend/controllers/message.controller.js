@@ -1,4 +1,5 @@
 const Message = require('../models/message.model');
+const logger = require('../config/logger');
 
 // @desc   Get conversation history with another user
 // @route  GET /api/messages/:otherUserId
@@ -16,7 +17,11 @@ exports.getConversationHistory = async (req, res) => {
 
     res.json(messages);
   } catch (err) {
-    console.error(err.message);
+    logger.error('Error retrieving conversation history:', { 
+      error: err.message, 
+      currentUserId: req.user.id, 
+      otherUserId: req.params.otherUserId 
+    });
     res.status(500).send('Server Error');
   }
 };

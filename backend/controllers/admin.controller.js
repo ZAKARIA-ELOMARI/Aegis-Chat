@@ -1,5 +1,6 @@
 const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
+const logger = require('../config/logger');
 
 // @desc   Update a user's status (deactivate/reactivate)
 // @route  PUT /api/admin/users/:userId/status
@@ -25,7 +26,7 @@ exports.updateUserStatus = async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
+    logger.error('Server error while updating user status:', { error: error.message, userId: req.params.userId, requestedStatus: req.body.status });
     res.status(500).json({ message: 'Server error while updating user status.' });
   }
 };
@@ -56,7 +57,7 @@ exports.resetUserPassword = async (req, res) => {
       });
   
     } catch (error) {
-      console.error(error);
+      logger.error('Server error while resetting user password:', { error: error.message, userId: req.params.userId });
       res.status(500).json({ message: 'Server error while resetting password.' });
     }
   };
