@@ -23,8 +23,8 @@ const registerRules = () => {
 // Validation rules for user login
 const loginRules = () => {
   return [
-    // username must be a non-empty string
-    body('username').notEmpty().withMessage('Username is required.'),
+    // email must be a valid email
+    body('email').isEmail().withMessage('Please provide a valid email.'),
     // password must be a non-empty string
     body('password').notEmpty().withMessage('Password is required.'),
   ];
@@ -33,8 +33,22 @@ const loginRules = () => {
 // Validation rules for setting the initial password
 const setInitialPasswordRules = () => {
     return [
-      body('username').notEmpty().withMessage('Username is required.'),
+      body('email').notEmpty().withMessage('Email is required.'),
       body('tempPassword').notEmpty().withMessage('Temporary password is required.'),
+      body('newPassword')
+        .isStrongPassword({
+            minLength: 8,
+            minLowercase: 1,
+            minUppercase: 1,
+            minNumbers: 1,
+            minSymbols: 1,
+        }).withMessage('Password must be at least 8 characters long and contain at least one lowercase letter, one uppercase letter, one number, and one special character.'),
+    ];
+};
+
+// Validation rules for password reset
+const resetPasswordRules = () => {
+    return [
       body('newPassword')
         .isStrongPassword({
             minLength: 8,
@@ -52,4 +66,5 @@ module.exports = {
   registerRules,
   loginRules,
   setInitialPasswordRules,
+  resetPasswordRules,
 };

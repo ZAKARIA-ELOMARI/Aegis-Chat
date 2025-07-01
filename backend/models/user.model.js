@@ -19,11 +19,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true  // The hashed password is mandatory
   },
-  role: {
-    type: String,
+  role: { // This field is changed
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Role',
     required: true,
-    enum: ['employee', 'admin'], // The role must be one of these two values
-    default: 'employee'         // If not specified, the user is an 'employee'
   },
   status: {
     type: String,
@@ -46,6 +45,9 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  refreshToken: { // Add this new field
+    type: String,
+  }
 }, {
   // Adds 'createdAt' and 'updatedAt' timestamps automatically
   timestamps: true

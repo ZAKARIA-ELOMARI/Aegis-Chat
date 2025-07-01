@@ -11,10 +11,18 @@ const Message = require('./models/message.model');
 const morgan = require('morgan');
 const logger = require('./config/logger');
 
+
+// Import all models to register them with Mongoose at startup.
+require('./models/user.model');
+require('./models/role.model');
+require('./models/message.model');
+require('./models/tokenBlocklist.model');
 // --- Database Connection ---
 connectDB();
 
 const app = express();
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
 const server = http.createServer(app); // <-- Create an HTTP server from our Express app
 
 // --- Configure Socket.IO ---
@@ -71,12 +79,8 @@ io.on('connection', (socket) => {
     try {
       logger.info(`Received message from ${socket.user.id} to ${recipientId}`);
 
-      // VALIDATION: Ensure content is a non-empty string.
-      // The client will be responsible for creating the stringified, base64-encoded payload.
-      if (typeof content !== 'string' || content.length === 0) {
-        logger.warn(`User ${socket.user.id} sent a message with an invalid format to ${recipientId}.`);
-        return; // Stop processing the invalid message
-      }
+      // The 'content' is now expected to be an encrypted buffer from the client.
+      // We remove the string validation. The client is responsible for encryption.
 
       // Create a consistent conversation ID
       const conversationId = [socket.user.id, recipientId].sort().join('_');
@@ -85,8 +89,7 @@ io.on('connection', (socket) => {
       const message = new Message({
         sender: socket.user.id,
         recipient: recipientId,
-        // The entire content object is saved. Your model's content field should be of type Object or Mixed.
-        content: content,
+        content: content, // Save the encrypted buffer directly
         conversationId: conversationId
       });
 

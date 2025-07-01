@@ -1,117 +1,87 @@
 const User = require('../models/user.model');
+const { Role } = require('../models/role.model');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken'); // <-- Import the new library
-const speakeasy = require('speakeasy'); // <-- ADD this import
+const jwt = require('jsonwebtoken');
+const speakeasy = require('speakeasy');
 const logger = require('../config/logger');
 const crypto = require('crypto');
-const TokenBlocklist = require('../models/tokenBlocklist.model'); 
-const { createToken, decodeToken } = require('../utils/jwt.utils');
-const sendEmail = require('../utils/email.util');
+const TokenBlocklist = require('../models/tokenBlocklist.model');
+const { createAccessToken, createRefreshToken } = require('../utils/jwt.utils');
 
-
-// @desc   Register a new user (employee)
-// @route  POST /api/auth/register
-// @access Private (to be restricted to Admins later)
+// Register a new user
 exports.register = async (req, res) => {
   try {
-    // Admins will now register users with an email and a name.
     const { username, email } = req.body;
-
-    // 1. Check if email is provided
     if (!email || !username) {
       return res.status(400).json({ message: 'Please provide a name and an email.' });
     }
-
-    // 2. Check if a user with that email already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({ message: "A user with this email already exists." });
     }
-
-    // 3. Generate a secure temporary password
+    const employeeRole = await Role.findOne({ name: 'Employee' });
+    if (!employeeRole) {
+        logger.error("Default 'Employee' role not found in the database.");
+        return res.status(500).json({ message: "Server configuration error: Default role not found."});
+    }
     const tempPassword = crypto.randomBytes(8).toString('hex');
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(tempPassword, salt);
-
-    // 4. Create the new user
     const user = await User.create({
-      username, // This is now the full name
+      username,
       email,
       passwordHash,
-      role: 'employee',
+      role: employeeRole._id,
       status: 'pending'
     });
-
-    // 5. Respond with success
     if (user) {
-      // NOTE: For a production system, you would email this password.
-      // For now, we return it so the admin can provide it to the user.
       res.status(201).json({
-        message: 'User registered successfully. Please provide them with their temporary password.',
-        user: {
-            id: user._id,
-            username: user.username,
-            email: user.email,
-        },
+        message: 'User registered successfully.',
+        user: { id: user._id, username: user.username, email: user.email },
         tempPassword: tempPassword
       });
     } else {
       res.status(400).json({ message: 'Invalid user data.' });
     }
-
   } catch (error) {
     logger.error('Server error during user registration:', { error: error.message, email: req.body.email });
     res.status(500).json({ message: 'Server error during user registration.' });
   }
 };
 
-
-// @desc   Authenticate a user & get token
-// @route  POST /api/auth/login
-// @access Public
+// Login a user
 exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const user = await User.findOne({ email }); // Find by email
+        const user = await User.findOne({ email });
 
         if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
             return res.status(401).json({ message: 'Invalid credentials.' });
-        
-        }
-        if (user.status !== 'active') {
-             return res.status(403).json({ message: `Account is not active. Current status: ${user.status}`});
         }
 
-        // Check if 2FA is enabled for the user
+        // Handle different user statuses
+        if (user.status === 'pending') {
+            const tempToken = jwt.sign({ sub: user.id, scope: 'SET_INITIAL_PASSWORD' }, process.env.JWT_SECRET, { expiresIn: '15m' });
+            return res.status(200).json({ message: "Login successful. Please set your initial password.", initialPasswordSetupRequired: true, tempToken });
+        }
+        if (user.status === 'deactivated') {
+             return res.status(403).json({ message: `Account is deactivated.`});
+        }
+
+        // Handle 2FA for active users
         if (user.isTwoFactorEnabled) {
-            // If yes, do not send the final token.
-            // Send a temporary token indicating a 2FA step is required.
-            const tempToken = jwt.sign(
-                { userId: user.id, isTwoFactorAuthenticated: false },
-                process.env.JWT_SECRET,
-                { expiresIn: '10m' } // This token is short-lived
-            );
-            return res.status(200).json({
-                message: "Please provide your 2FA token.",
-                twoFactorRequired: true,
-                tempToken: tempToken,
-            });
+            const tempToken = jwt.sign({ sub: user.id, scope: '2FA_LOGIN' }, process.env.JWT_SECRET, { expiresIn: '10m' });
+            return res.status(200).json({ message: "Please provide your 2FA token.", twoFactorRequired: true, tempToken });
         }
 
-        // If 2FA is NOT enabled, log them in directly
-        const userPayload = {
-            id: user.id,
-            role: user.role,
-            username: user.username,
-            email: user.email
-        };
-        const finalToken = createToken(userPayload); // Use our utility
+        // If active and no 2FA, issue final tokens
+        const accessToken = createAccessToken(user);
+        const refreshToken = createRefreshToken(user);
+        user.refreshToken = refreshToken;
+        await user.save();
 
-        res.status(200).json({
-            message: 'Login successful.',
-            token: finalToken,
-            user: userPayload
-        });
+        res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 });
+        res.status(200).json({ message: 'Login successful.', accessToken });
 
     } catch (error) {
         logger.error('Login error', { error: error.message });
@@ -119,114 +89,73 @@ exports.login = async (req, res) => {
     }
 };
 
-exports.logout = async (req, res, next) => {
-    try {
-
-        const token = req.headers.authorization.split(' ')[1];
-        const decoded = decodeToken(token); // Use a utility to decode the token without verifying (we already know it's valid from the auth middleware)
-        
-        const blocklistedToken = new TokenBlocklist({
-            jti: decoded.jti,
-            expiresAt: new Date(decoded.exp * 1000), // `exp` is in seconds, Date needs milliseconds
-        });
-
-        await blocklistedToken.save();
-
-        res.status(200).json({ message: "You have been successfully logged out." });
-
-    } catch (error) {
-        next(error);
-    }
-};
-
-
-// NEW CONTROLLER for verifying the 2FA token after password login
-exports.verify2FAToken = async (req, res) => {
-    try {
-        const { token } = req.body;
-        // The JWT for this request is the short-lived one we sent from the /login endpoint
-        const tempUserId = req.user.id; // This comes from our standard 'auth' middleware
-
-        const user = await User.findById(tempUserId);
-        
-        const verified = speakeasy.totp.verify({
-            secret: user.twoFactorSecret,
-            encoding: 'base32',
-            token: token,
-        });
-
-        if (verified) {
-            // Token is valid. Issue the final, fully-authenticated JWT.
-            const finalToken = jwt.sign(
-                { user: { id: user.id, role: user.role }, isTwoFactorAuthenticated: true },
-                process.env.JWT_SECRET,
-                { expiresIn: '24h' }
-            );
-            res.status(200).json({
-                message: 'Login successful.',
-                token: finalToken,
-                user: { id: user.id, username: user.username, role: user.role }
-            });
-        } else {
-            res.status(400).json({ message: "Invalid 2FA token." });
-        }
-    } catch (error) {
-        logger.error('2FA verification error', { error: error.message });
-        res.status(500).json({ message: 'Server error during 2FA verification.' });
-    }
-};
-
-// @desc   Set the initial password for a new user
-// @route  POST /api/auth/set-initial-password
-// @access Public
+// Set Initial Password
 exports.setInitialPassword = async (req, res) => {
   try {
-    // This flow should now use email, not username.
-    const { email, tempPassword, newPassword } = req.body;
-
-    // 1. Basic validation
-    if (!email || !tempPassword || !newPassword) {
-      return res.status(400).json({ message: 'Please provide email, temporary password, and new password.' });
+    const userId = req.user.sub;
+    const { newPassword } = req.body;
+    if (req.user.scope !== 'SET_INITIAL_PASSWORD') {
+        return res.status(403).json({ message: 'Forbidden: Invalid token scope.'});
     }
-
-    // 2. Find the user by email
-    const user = await User.findOne({ email });
-
-    // 3. If user exists, compare the temporary password
-    if (user) {
-      const isMatch = await bcrypt.compare(tempPassword, user.passwordHash);
-      if (isMatch) {
-        // --- SUCCESS CASE ---
-        // Block further processing if the account isn't in a pending state
-        if (user.status !== 'pending') {
-          return res.status(400).json({ message: 'This account is not pending activation.' });
-        }
-
-        // 5. Hash the new password and update the user
-        const salt = await bcrypt.genSalt(10);
-        user.passwordHash = await bcrypt.hash(newPassword, salt);
-        user.status = 'active'; // Activate the user!
-        await user.save();
-
-        return res.status(200).json({ message: 'Password has been updated successfully. You can now log in.' });
-      }
+    const user = await User.findById(userId);
+    if (!user || user.status !== 'pending') {
+      return res.status(400).json({ message: 'This account is not pending activation or does not exist.' });
     }
-    
-    // --- FAILURE CASE ---
-    // For any failure (user not found OR password mismatch), return the same generic error.
-    // To make timing attacks more difficult, we can perform a dummy hash comparison if the user is not found.
-    if (!user) {
-      await bcrypt.compare('', '$2a$10$abcdefghijklmnopqrstuv');
-    }
-    
-    return res.status(401).json({ message: 'Invalid email or temporary password.' });
-
+    const salt = await bcrypt.genSalt(10);
+    user.passwordHash = await bcrypt.hash(newPassword, salt);
+    user.status = 'active';
+    await user.save();
+    return res.status(200).json({ message: 'Password has been updated successfully.' });
   } catch (error) {
-    logger.error('Server error during password update:', { error: error.message, email: req.body.email });
+    logger.error('Server error during initial password set:', { error: error.message, userId: req.user?.sub });
     res.status(500).json({ message: 'Server error during password update.' });
   }
 };
 
+// Verify 2FA during login
+exports.verifyLogin2FA = async (req, res) => {
+    try {
+        const userId = req.user.sub;
+        const { token } = req.body;
+        if (req.user.scope !== '2FA_LOGIN') {
+            return res.status(403).json({ message: 'Forbidden: Invalid token scope for 2FA login.'});
+        }
+        if (!token) {
+            return res.status(400).json({ message: '2FA token is required.' });
+        }
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(401).json({ message: 'Invalid user.' });
+        }
+        const verified = speakeasy.totp.verify({ secret: user.twoFactorSecret, encoding: 'base32', token, window: 1 });
+        if (verified) {
+            const accessToken = createAccessToken(user);
+            const refreshToken = createRefreshToken(user);
+            user.refreshToken = refreshToken;
+            await user.save();
+            res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 });
+            res.status(200).json({ message: 'Login successful.', accessToken });
+        } else {
+            res.status(401).json({ message: "Invalid 2FA token." });
+        }
+    } catch (error) {
+        logger.error('2FA login verification error', { error: error.message });
+        res.status(500).json({ message: 'Server error during 2FA login verification.' });
+    }
+};
+
+// Logout
+exports.logout = async (req, res) => {
+    try {
+        const token = req.headers.authorization.split(' ')[1];
+        const decoded = jwt.decode(token);
+        const blocklistedToken = new TokenBlocklist({ jti: decoded.jti, expiresAt: new Date(decoded.exp * 1000) });
+        await blocklistedToken.save();
+        res.status(200).json({ message: "You have been successfully logged out." });
+    } catch (error) {
+        res.status(500).json({ message: "Error logging out."});
+    }
+};
 
 // @desc   Handle "forgot password" request
 // @route  POST /api/auth/forgot-password
@@ -312,5 +241,29 @@ exports.resetPassword = async (req, res) => {
     } catch (error) {
         logger.error('Error in resetPassword:', { error: error.message });
         res.status(500).json({ message: 'An error occurred while resetting your password.' });
+    }
+};
+
+// At the end of auth.controller.js
+
+exports.refreshToken = async (req, res) => {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+        return res.status(401).json({ message: 'Refresh token not found.' });
+    }
+
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+        const user = await User.findById(decoded.sub);
+
+        if (!user || user.refreshToken !== refreshToken) {
+            return res.status(403).json({ message: 'Invalid refresh token.' });
+        }
+
+        const newAccessToken = createAccessToken(user);
+        res.json({ accessToken: newAccessToken });
+
+    } catch (error) {
+        return res.status(403).json({ message: 'Invalid refresh token.' });
     }
 };

@@ -9,19 +9,18 @@ const messageSchema = new mongoose.Schema({
   recipient: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: false,
+    required: false, // Not required for broadcast messages
   },
   content: {
-    type: String,
+    type: Buffer, // Changed from String to Buffer
     required: true,
   },
-  // We create a consistent ID for any conversation between two users
   conversationId: {
     type: String,
     required: false,
     index: true, // Indexing this field makes fetching conversations much faster
   },
-  isBroadcast: { 
+  isBroadcast: {
     type: Boolean,
     default: false,
   }

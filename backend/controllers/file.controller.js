@@ -83,6 +83,6 @@ exports.uploadAndScanFile = async (req, res) => {
             fileSize: req.file?.size,
             userId: req.user?.id
         });
-        res.status(500).json({ message: 'An error occurred during the file upload process.' });
+        res.status(500).json({ message: error.message || 'An error occurred during the file upload process.' });
     }
 };

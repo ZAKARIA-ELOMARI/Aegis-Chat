@@ -1,15 +1,22 @@
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto'); // Import crypto for JTI
+const crypto = require('crypto');
 
-exports.createToken = (user) => {
+exports.createAccessToken = (user) => {
     const payload = {
         sub: user._id,
         username: user.username,
         role: user.role,
-        // --- ADD JTI (JWT ID) ---
-        jti: crypto.randomBytes(16).toString('hex'), 
+        jti: crypto.randomBytes(16).toString('hex'),
     };
-    return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+};
+
+exports.createRefreshToken = (user) => {
+    const payload = {
+        sub: user._id,
+        jti: crypto.randomBytes(16).toString('hex'),
+    };
+    return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
 };
 
 exports.decodeToken = (token) => {

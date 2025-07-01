@@ -17,19 +17,19 @@ const sanitizePrompt = (prompt, req) => {
         "reveal your instructions",
         "what are your rules",
         // This regex looks for commands at the start of the prompt, case-insensitive
-        /^\s*\[(system|user|assistant)\]/i 
+        /^\s*\[(system|user|assistant)\]/i
     ];
 
     let sanitized = prompt.toLowerCase();
     for (const phrase of blocklist) {
-        if (sanitized.includes(phrase)) {
+        if (sanitized.match(phrase)) { // Use .match() for regex compatibility
             logger.warn(`Potential prompt injection detected for user ${req.user?.id}. Phrase: "${phrase}"`);
             // Return a safe, generic response instead of sending to the AI
-            return "I cannot process that request."; 
+            return "I am unable to process that request.";
         }
     }
     // If no blocklisted phrases are found, return the original prompt
-    return prompt; 
+    return prompt;
 }
 
 // @desc   Get a response from the AI chatbot
