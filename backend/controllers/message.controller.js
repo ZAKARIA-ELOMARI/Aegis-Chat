@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 // @access Private
 exports.getConversationHistory = async (req, res) => {
   try {
-    const currentUserId = req.user.id;
+    const currentUserId = req.user.sub;
     const otherUserId = req.params.otherUserId;
 
     if (!mongoose.Types.ObjectId.isValid(otherUserId)) {
@@ -18,7 +18,13 @@ exports.getConversationHistory = async (req, res) => {
     const conversationId = [currentUserId, otherUserId].sort().join('_');
 
     // Find all messages for that conversation, sorted by creation time
-    const messages = await Message.find({ conversationId }).sort('createdAt');
+    const messagesFromDb = await Message.find({ conversationId }).sort('createdAt').lean();
+
+    // Convert buffer content to string for each message
+    const messages = messagesFromDb.map(msg => ({
+      ...msg,
+      content: msg.content.toString('utf-8')
+    }));
 
     res.json(messages);
   } catch (err) {

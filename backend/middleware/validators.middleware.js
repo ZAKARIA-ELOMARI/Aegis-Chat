@@ -33,8 +33,7 @@ const loginRules = () => {
 // Validation rules for setting the initial password
 const setInitialPasswordRules = () => {
     return [
-      body('email').notEmpty().withMessage('Email is required.'),
-      body('tempPassword').notEmpty().withMessage('Temporary password is required.'),
+      // We only need to validate the newPassword, since the user is identified by the tempToken.
       body('newPassword')
         .isStrongPassword({
             minLength: 8,

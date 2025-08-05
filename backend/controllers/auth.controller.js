@@ -7,6 +7,7 @@ const logger = require('../config/logger');
 const crypto = require('crypto');
 const TokenBlocklist = require('../models/tokenBlocklist.model');
 const { createAccessToken, createRefreshToken } = require('../utils/jwt.utils');
+const { sendEmail } = require('../utils/email.util');
 
 // Register a new user
 exports.register = async (req, res) => {
@@ -75,7 +76,7 @@ exports.login = async (req, res) => {
         }
 
         // If active and no 2FA, issue final tokens
-        const accessToken = createAccessToken(user);
+        const accessToken = await createAccessToken(user);
         const refreshToken = createRefreshToken(user);
         user.refreshToken = refreshToken;
         await user.save();
@@ -129,7 +130,7 @@ exports.verifyLogin2FA = async (req, res) => {
         }
         const verified = speakeasy.totp.verify({ secret: user.twoFactorSecret, encoding: 'base32', token, window: 1 });
         if (verified) {
-            const accessToken = createAccessToken(user);
+            const accessToken = await createAccessToken(user);
             const refreshToken = createRefreshToken(user);
             user.refreshToken = refreshToken;
             await user.save();
@@ -260,7 +261,7 @@ exports.refreshToken = async (req, res) => {
             return res.status(403).json({ message: 'Invalid refresh token.' });
         }
 
-        const newAccessToken = createAccessToken(user);
+        const newAccessToken = await createAccessToken(user);
         res.json({ accessToken: newAccessToken });
 
     } catch (error) {

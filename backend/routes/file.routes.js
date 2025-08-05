@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { uploadAndScanFile } = require('../controllers/file.controller');
+const { uploadAndScanFile, getPresignedUrl } = require('../controllers/file.controller');
 const auth = require('../middleware/auth.middleware');
 const { apiLimiter } = require('../middleware/rateLimiter.middleware');
 
 const upload = require('../middleware/upload.middleware'); 
 
+
+router.get('/access/:key', apiLimiter, auth, getPresignedUrl);
 
 router.post('/upload', apiLimiter, auth, upload.single('file'), uploadAndScanFile);
 

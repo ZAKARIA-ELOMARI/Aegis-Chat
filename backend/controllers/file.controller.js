@@ -1,10 +1,12 @@
 const minioClient = require('../config/minio.client.js');
-const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const crypto = require('crypto');
 const { scanFileBuffer } = require('../services/malwareScanner.service');
 const logger = require('../config/logger');
 // Import the file-type library
 const { fileTypeFromBuffer } = require('file-type');
+const Message = require('../models/message.model');
 
 // A simple utility function to create a SHA256 hash from a buffer
 const getBufferHash = (buffer) => {
@@ -84,5 +86,41 @@ exports.uploadAndScanFile = async (req, res) => {
             userId: req.user?.id
         });
         res.status(500).json({ message: error.message || 'An error occurred during the file upload process.' });
+    }
+};
+
+exports.getPresignedUrl = async (req, res) => {
+    try {
+        const currentUserId = req.user.sub;
+        const fileKey = req.params.key;
+
+        // CONSTRUCT THE FULL URL AS IT'S STORED IN THE MESSAGE
+        const fileUrl = `${process.env.MINIO_ENDPOINT}/${process.env.MINIO_BUCKET_NAME}/${fileKey}`;
+
+        // Security Check: Verify the user is part of a conversation where this file was shared.
+        const messageContainingFile = await Message.findOne({
+            content: fileUrl,
+            $or: [{ sender: currentUserId }, { recipient: currentUserId }]
+        });
+
+        if (!messageContainingFile) {
+            logger.warn(`Unauthorized access attempt for file ${fileKey} by user ${currentUserId}`);
+            return res.status(403).json({ message: 'Forbidden: You do not have access to this file.' });
+        }
+
+        // If authorized, generate the pre-signed URL
+        const command = new GetObjectCommand({
+            Bucket: process.env.MINIO_BUCKET_NAME,
+            Key: fileKey,
+        });
+
+        // The URL will be valid for 5 minutes (300 seconds)
+        const url = await getSignedUrl(minioClient, command, { expiresIn: 300 });
+
+        res.status(200).json({ url });
+
+    } catch (error) {
+        logger.error('Failed to generate pre-signed URL', { error: error.message, fileKey: req.params.key });
+        res.status(500).json({ message: 'Could not retrieve file.' });
     }
 };

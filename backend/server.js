@@ -51,7 +51,7 @@ io.use((socket, next) => {
       return next(new Error('Authentication Error: Invalid token.'));
     }
     // If token is valid, attach the user info to the socket object
-    socket.user = decoded.user;
+    socket.user = decoded;
     next();
   });
 });
@@ -59,37 +59,36 @@ io.use((socket, next) => {
 // --- Socket.IO Connection Logic ---
 io.on('connection', (socket) => {
   // This code now only runs for AUTHENTICATED users
-  logger.info(`Authenticated user connected: ${socket.user.id} with socket ID: ${socket.id}`);
-
+  logger.info(`Authenticated user connected: ${socket.user.sub} with socket ID: ${socket.id}`);
   // --- Start of new logic ---
   // Add user to our tracking object
-  logger.info(`User ${socket.user.id} connected. Adding to online users.`);
-  onlineUsers[socket.user.id] = socket.id;
+  logger.info(`User ${socket.user.sub} connected. Adding to online users.`);
+  onlineUsers[socket.user.sub] = socket.id;
 
   // Emit the updated list of online users to everyone
   io.emit('updateOnlineUsers', Object.keys(onlineUsers));
   // --- End of new logic ---
 
   // Join a private room based on their user ID
-  socket.join(socket.user.id);
-  logger.info(`User ${socket.user.id} joined room ${socket.user.id}`);
+  socket.join(socket.user.sub);
+  logger.info(`User ${socket.user.sub} joined room ${socket.user.sub}`);
 
   // Listen for a 'privateMessage' event
-  socket.on('privateMessage', async ({ recipientId, content }) => {
-    try {
-      logger.info(`Received message from ${socket.user.id} to ${recipientId}`);
+  socket.on('privateMessage', async ({ senderId, recipientId, content }) => {
+  try {
+    logger.info(`Received message from ${senderId} to ${recipientId}`);
 
       // The 'content' is now expected to be an encrypted buffer from the client.
       // We remove the string validation. The client is responsible for encryption.
 
       // Create a consistent conversation ID
-      const conversationId = [socket.user.id, recipientId].sort().join('_');
+      const conversationId = [senderId, recipientId].sort().join('_');
 
       // Create a new message document
       const message = new Message({
-        sender: socket.user.id,
+        sender: senderId,
         recipient: recipientId,
-        content: content, // Save the encrypted buffer directly
+        content: Buffer.from(content, 'utf-8'), // Save the encrypted buffer directly
         conversationId: conversationId
       });
 
@@ -98,28 +97,28 @@ io.on('connection', (socket) => {
 
       // Forward the encrypted payload to the recipient's private room
       io.to(recipientId).emit('privateMessage', {
-        content,
-        senderId: socket.user.id,
+        content: content.toString('utf-8'), // Convert buffer back to string
+        senderId: socket.user.sub,
       });
     } catch (error) {
-      logger.error('Error handling private message:', { error: error.message, userId: socket.user.id, recipientId });
+      logger.error('Error handling private message:', { error: error.message, userId: socket.user.sub, recipientId });
     }
   });
 
   // --- Add a new listener for typing indicators ---
   socket.on('typing', ({ recipientId, isTyping }) => {
     // Forward the typing status directly to the recipient's room
-    io.to(recipientId).emit('typing', { senderId: socket.user.id, isTyping });
+    io.to(recipientId).emit('typing', { senderId: socket.user.sub, isTyping });
   });
   // --- End of new listener ---
 
   socket.on('disconnect', () => {
-    logger.info(`User ${socket.user.id} disconnected.`);
+    logger.info(`User ${socket.user.sub} disconnected.`);
     
     // --- Start of new logic ---
     // Remove user from our tracking object
-    logger.info(`User ${socket.user.id} disconnected. Removing from online users.`);
-    delete onlineUsers[socket.user.id];
+    logger.info(`User ${socket.user.sub} disconnected. Removing from online users.`);
+    delete onlineUsers[socket.user.sub];
     
     // Emit the updated list of online users to everyone
     io.emit('updateOnlineUsers', Object.keys(onlineUsers));
@@ -130,7 +129,10 @@ io.on('connection', (socket) => {
 
 // --- Middleware ---
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:5173', // Your React app's origin
+  credentials: true // Allow cookies to be sent
+}));
 app.use(express.json());
 const attachIo = (req, res, next) => {
   req.io = io;
@@ -153,24 +155,6 @@ const PORT = process.env.PORT || 8000;
 app.get('/', (req, res) => {
   res.json({ message: "Welcome to the Aegis Chat backend! The API is running." });
 });
-
-// --- Socket.IO Connection Logic ---
-io.on('connection', (socket) => {
-  logger.info(`A user connected with socket ID: ${socket.id}`);
-
-  // Listen for a 'chatMessage' event from a client
-  socket.on('chatMessage', (msg) => {
-    logger.info('Message received: ' + msg);
-    // Broadcast the message to ALL connected clients
-    io.emit('chatMessage', msg);
-  });
-
-  // Listen for the built-in 'disconnect' event
-  socket.on('disconnect', () => {
-    logger.info(`User with socket ID ${socket.id} disconnected.`);
-  });
-});
-
 
 // --- Start Server ---
 server.listen(PORT, () => {

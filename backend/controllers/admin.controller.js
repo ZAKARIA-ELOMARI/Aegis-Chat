@@ -41,23 +41,29 @@ exports.resetUserPassword = async (req, res) => {
     try {
       const userId = req.params.userId;
       const user = await User.findById(userId);
-  
+
       if (!user) {
         return res.status(404).json({ message: 'User not found.' });
       }
-  
+
       const tempPassword = Math.random().toString(36).slice(-8);
       const salt = await bcrypt.genSalt(10);
       user.passwordHash = await bcrypt.hash(tempPassword, salt);
       user.status = 'pending'; 
+
+      // --- THE SECURITY FIX IS HERE ---
+      user.isTwoFactorEnabled = false;
+      user.twoFactorSecret = null;
+      // --- END FIX ---
+
       await user.save();
-  
+
       res.status(200).json({
-        message: `Password for user '${user.username}' has been reset. Please provide them with the new temporary password to complete the process.`,
+        message: `Password for user '${user.username}' has been reset and their 2FA has been disabled. Please provide them with the new temporary password to complete the process.`,
         username: user.username,
         tempPassword: tempPassword
       });
-  
+
     } catch (error) {
       logger.error('Server error while resetting user password:', { error: error.message, userId: req.params.userId });
       res.status(500).json({ message: 'Server error while resetting password.' });
