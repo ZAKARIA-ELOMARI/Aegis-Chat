@@ -1,21 +1,19 @@
 // src/components/ChatWindow.tsx
 import React, { useEffect, useState, useRef } from 'react';
-import { Box, TextField, Button, Paper, Typography, IconButton, CircularProgress } from '@mui/material';
-import AttachFileIcon from '@mui/icons-material/AttachFile'; // NEW: Import for the icon
+import { Box, TextField, Button, Paper, Typography, IconButton } from '@mui/material';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import useUserStore from '../store/userStore';
 import useAuthStore from '../store/authStore';
 import apiClient from '../api/apiClient';
 import { getSocket } from '../api/socketClient';
 
 const ChatWindow: React.FC = () => {
-  const { selectedUser, messages, setMessages, addMessage } = useUserStore();
-  const currentUserId = useAuthStore((state) => state.userId);
-  const accessToken = useAuthStore((state) => state.accessToken);
+  const { selectedUser, messages, setMessages, addMessage, typingUser } = useUserStore();
+  const { userId: currentUserId, accessToken } = useAuthStore();
   const [newMessage, setNewMessage] = useState('');
-  const [file, setFile] = useState<File | null>(null); // NEW: State for the selected file
-  const [isUploading, setIsUploading] = useState(false); // NEW: State for upload loading
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null); // NEW: Ref for the hidden file input
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -39,64 +37,60 @@ const ChatWindow: React.FC = () => {
     }
   }, [selectedUser, setMessages]);
 
-  // NEW: Function to handle when a file is selected
+  // Function to handle when a file is selected
+  // Function to handle when a file is selected
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      // To make it appear like a message, we can set the text field
       setNewMessage(`File: ${e.target.files[0].name}`);
     }
+  };
+  // Handler for input changes to emit typing events
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewMessage(e.target.value);
+
+    if (!selectedUser || !accessToken) return;
+    const socket = getSocket(accessToken);
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    socket.emit('typing', { recipientId: selectedUser._id, isTyping: true });
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit('typing', { recipientId: selectedUser._id, isTyping: false });
+    }, 1500);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!newMessage.trim() && !file) || !selectedUser || !accessToken || !currentUserId) return;
 
-    let messageContent = newMessage;
-
-    // NEW: Upload logic
-    if (file) {
-      setIsUploading(true);
-      const formData = new FormData();
-      formData.append('file', file); // The field name must be 'file'
-
-      try {
-        const response = await apiClient.post('/files/upload', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-        // The backend returns the URL of the uploaded file
-        messageContent = response.data.url;
-      } catch (error) {
-        console.error('File upload failed:', error);
-        alert('File upload failed! Make sure it is a valid type and under 5MB.');
-        setIsUploading(false);
-        setFile(null);
-        setNewMessage('');
+    if (!newMessage.trim() || !selectedUser || !accessToken || !currentUserId) {
         return;
-      } finally {
-        setIsUploading(false);
-        setFile(null);
-      }
     }
 
-    const socket = getSocket(accessToken);
-    socket.emit('privateMessage', {
-      senderId: currentUserId,
-      recipientId: selectedUser._id,
-      content: messageContent,
-    });
+    try {
+        const socket = getSocket(accessToken);
+        const messageData = {
+            senderId: currentUserId,
+            recipientId: selectedUser._id,
+            content: newMessage,
+        };
 
-    addMessage({
-      _id: new Date().toISOString(),
-      sender: currentUserId,
-      recipient: selectedUser._id,
-      content: messageContent,
-      createdAt: new Date().toISOString(),
-    });
+        socket.emit('privateMessage', messageData);
 
-    setNewMessage('');
+        addMessage({
+            _id: new Date().toISOString(),
+            sender: currentUserId,
+            recipient: selectedUser._id,
+            content: newMessage,
+            createdAt: new Date().toISOString(),
+        });
+
+        setNewMessage('');
+    } catch (error) {
+        console.error('Failed to send message:', error);
+    }
   };
 
   if (!selectedUser) return null;
@@ -119,7 +113,7 @@ const ChatWindow: React.FC = () => {
               try {
                   const response = await apiClient.get(`/files/access/${fileName}`);
                   const presignedUrl = response.data.url;
-                  window.open(presignedUrl, '_blank'); // Open the secure, temporary URL
+                  window.open(presignedUrl, '_blank');
               } catch (error) {
                   console.error("Could not get secure link for file", error);
                   alert("Error: Could not access file.");
@@ -153,16 +147,26 @@ const ChatWindow: React.FC = () => {
         })}
         <div ref={messagesEndRef} />
       </Box>
+
+      {/* Typing indicator */}
+      <Box sx={{ height: '24px', px: 2, fontStyle: 'italic' }}>
+        {typingUser === selectedUser?._id && (
+          <Typography variant="body2" color="text.secondary">
+            {selectedUser.username} is typing...
+          </Typography>
+        )}
+      </Box>
+
       <Box component="form" onSubmit={handleSendMessage} sx={{ p: 2, borderTop: '1px solid #ddd', display: 'flex', alignItems: 'center' }}>
-        {/* NEW: Hidden file input */}
+        {/* Hidden file input */}
         <input
           type="file"
           ref={fileInputRef}
           style={{ display: 'none' }}
           onChange={handleFileChange}
-          accept=".jpg, .jpeg, .png, .pdf" // Restrict file types on the client side
+          accept=".jpg, .jpeg, .png, .pdf"
         />
-        <IconButton onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+        <IconButton onClick={() => fileInputRef.current?.click()}>
           <AttachFileIcon />
         </IconButton>
         <TextField
@@ -170,11 +174,10 @@ const ChatWindow: React.FC = () => {
           variant="outlined"
           placeholder="Type a message or attach a file..."
           value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          disabled={isUploading}
+          onChange={handleInputChange}
         />
-        <Button type="submit" variant="contained" sx={{ ml: 1 }} disabled={isUploading}>
-          {isUploading ? <CircularProgress size={24} /> : 'Send'}
+        <Button type="submit" variant="contained" sx={{ ml: 1 }}>
+          Send
         </Button>
       </Box>
     </Box>

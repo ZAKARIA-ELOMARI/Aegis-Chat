@@ -103,24 +103,23 @@ exports.getSystemLogs = async (req, res) => {
 exports.broadcastMessage = async (req, res) => {
   try {
     const { content } = req.body;
-    const adminUserId = req.user.id; // from auth middleware
+    // THE FIX IS HERE: Use req.user.sub instead of req.user.id
+    const adminUserId = req.user.sub; 
 
     if (!content) {
       return res.status(400).json({ message: 'Broadcast content cannot be empty.' });
     }
 
-    // 1. Save the broadcast message to the database for historical record
     const broadcast = new Message({
-      sender: adminUserId,
-      content: content,
+      sender: adminUserId, // Now this will have the correct ID
+      content: Buffer.from(content, 'utf-8'), // Also ensure content is a Buffer
       isBroadcast: true,
     });
     await broadcast.save();
 
-    // 2. Emit the message to all connected clients
     req.io.emit('broadcastMessage', {
-      content: broadcast.content,
-      sender: adminUserId,
+      content: broadcast.content.toString('utf-8'), // Send content back as a string
+      sender: adminUserId, // Also fixed here for consistency
       timestamp: broadcast.createdAt,
     });
 

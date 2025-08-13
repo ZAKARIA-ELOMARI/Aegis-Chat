@@ -36,3 +36,25 @@ exports.getConversationHistory = async (req, res) => {
     res.status(500).send('Server Error');
   }
 };
+
+// @desc   Get all broadcast messages
+// @route  GET /api/messages/broadcasts
+// @access Private
+exports.getBroadcasts = async (req, res) => {
+  try {
+    const broadcasts = await Message.find({ isBroadcast: true })
+      .sort({ createdAt: -1 }) // Newest first
+      .populate('sender', 'username') // Get sender's username
+      .lean();
+
+    const formattedBroadcasts = broadcasts.map(msg => ({
+      ...msg,
+      content: msg.content.toString('utf-8')
+    }));
+
+    res.json(formattedBroadcasts);
+  } catch (err) {
+    logger.error('Error retrieving broadcast messages:', { error: err.message });
+    res.status(500).send('Server Error');
+  }
+};

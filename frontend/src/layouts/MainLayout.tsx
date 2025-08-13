@@ -16,23 +16,62 @@ import {
   Avatar,
   Button,
   Divider,
+  Badge,
+  IconButton,
+  styled,
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import SecurityIcon from '@mui/icons-material/Security';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import ListAltIcon from '@mui/icons-material/ListAlt';
+import CampaignIcon from '@mui/icons-material/Campaign';
 import apiClient from '../api/apiClient';
 import useUserStore from '../store/userStore';
 import useAuthStore from '../store/authStore';
+import useBroadcastStore from '../store/broadcastStore';
+import BroadcastPanel from '../components/BroadcastPanel';
 import type { User } from '../types/user';
 import { getSocket } from '../api/socketClient';
 import type { Message } from '../types/message';
 
+// NEW: Create a styled component for our online indicator dot
+const StyledBadge = styled(Badge)(({ theme }) => ({
+  '& .MuiBadge-badge': {
+    backgroundColor: '#44b700',
+    color: '#44b700',
+    boxShadow: `0 0 0 2px ${theme.palette.background.paper}`,
+    '&::after': {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      borderRadius: '50%',
+      animation: 'ripple 1.2s infinite ease-in-out',
+      border: '1px solid currentColor',
+      content: '""',
+    },
+  },
+  '@keyframes ripple': {
+    '0%': {
+      transform: 'scale(.8)',
+      opacity: 1,
+    },
+    '100%': {
+      transform: 'scale(2.4)',
+      opacity: 0,
+    },
+  },
+}));
+
 const drawerWidth = 240;
 
 const MainLayout: React.FC = () => {
-  const { users, setUsers, setSelectedUser } = useUserStore();
+  const { users, setUsers, setSelectedUser, setOnlineUsers, setTypingUser } = useUserStore();
   const { logout, userId: currentUserId, accessToken, role } = useAuthStore(); // Add role
+  const { setMessages: setBroadcasts, addMessage: addBroadcast } = useBroadcastStore();
+  const toggleBroadcastPanel = useBroadcastStore((state) => state.togglePanel);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -46,6 +85,19 @@ const MainLayout: React.FC = () => {
     };
     fetchUsers();
   }, [setUsers]);
+
+  useEffect(() => {
+    // Fetch historical broadcasts on load
+    const fetchBroadcasts = async () => {
+      try {
+        const response = await apiClient.get('/messages/broadcasts');
+        setBroadcasts(response.data);
+      } catch (error) {
+        console.error('Failed to fetch broadcasts:', error);
+      }
+    };
+    fetchBroadcasts();
+  }, [setBroadcasts]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -77,17 +129,44 @@ const MainLayout: React.FC = () => {
         }
     };
 
+    // NEW: Listen for the online user list
+    socket.on('updateOnlineUsers', (onlineUserIds: string[]) => {
+      setOnlineUsers(onlineUserIds);
+    });
+
+    // NEW: Listen for typing indicators
+    socket.on('typing', ({ senderId, isTyping }) => {
+      setTypingUser(isTyping ? senderId : null);
+    });
+
+    // NEW: Listen for broadcast messages
+    const handleBroadcastMessage = (data: { content: string, sender: string, timestamp: string }) => {
+      console.log('New broadcast received!', data);
+      // Add the new broadcast to our store
+      addBroadcast({
+        _id: data.timestamp, // Use timestamp as a temporary key
+        content: data.content,
+        sender: data.sender,
+        recipient: '', // Not applicable
+        createdAt: data.timestamp,
+      });
+    };
+
     socket.on('connect', () => console.log('Socket connected:', socket.id));
     socket.on('disconnect', () => console.log('Socket disconnected'));
     socket.on('privateMessage', handlePrivateMessage);
+    socket.on('broadcastMessage', handleBroadcastMessage);
 
     // Cleanup function to remove the listener when the component unmounts
     return () => {
         socket.off('privateMessage', handlePrivateMessage);
+        socket.off('updateOnlineUsers'); // NEW: Cleanup listener
+        socket.off('typing'); // NEW: Cleanup listener
+        socket.off('broadcastMessage', handleBroadcastMessage); // Cleanup the new listener
         socket.off('connect');
         socket.off('disconnect');
     };
-}, [accessToken]); // This effect should only re-run if the user's token changes (login/logout)
+}, [accessToken, setOnlineUsers, setTypingUser, addBroadcast]); // Add dependencies
 
   const handleLogout = async () => {
     try {
@@ -102,6 +181,9 @@ const MainLayout: React.FC = () => {
 
   // Filter the users list to exclude the current user
   const filteredUsers = users.filter(user => user._id !== currentUserId);
+
+  // Get the list of online users from the store for rendering
+  const onlineUsers = useUserStore((state) => state.onlineUsers);
 
   const handleSelectUser = (user: User) => {
     setSelectedUser(user);
@@ -119,9 +201,15 @@ const MainLayout: React.FC = () => {
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             Aegis Chat
           </Typography>
+          {/* Button to open the broadcast panel */}
+          <IconButton color="inherit" onClick={toggleBroadcastPanel}>
+            <CampaignIcon />
+          </IconButton>
           <Button color="inherit" onClick={handleLogout}>Logout</Button>
         </Toolbar>
       </AppBar>
+      {/* Add the broadcast panel component */}
+      <BroadcastPanel />
       <Drawer
         variant="permanent"
         sx={{
@@ -135,14 +223,34 @@ const MainLayout: React.FC = () => {
           <List>
             {/* NEW: Conditionally render Admin Panel Link */}
             {role === 'Super Admin' && (
-              <ListItem key="admin-users" disablePadding>
-                <ListItemButton onClick={() => navigate('/admin/users')}>
-                  <ListItemIcon>
-                    <AdminPanelSettingsIcon />
-                  </ListItemIcon>
-                  <ListItemText primary="Admin Panel" />
-                </ListItemButton>
-              </ListItem>
+              <>
+                <ListItem key="admin-users" disablePadding>
+                  <ListItemButton onClick={() => navigate('/admin/users')}>
+                    <ListItemIcon>
+                      <AdminPanelSettingsIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="User Management" />
+                  </ListItemButton>
+                </ListItem>
+                {/* NEW LINK FOR LOGS */}
+                <ListItem key="admin-logs" disablePadding>
+                  <ListItemButton onClick={() => navigate('/admin/logs')}>
+                    <ListItemIcon>
+                      <ListAltIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="System Logs" />
+                  </ListItemButton>
+                </ListItem>
+                {/* NEW LINK FOR BROADCAST */}
+                <ListItem key="admin-broadcast" disablePadding>
+                  <ListItemButton onClick={() => navigate('/admin/broadcast')}>
+                    <ListItemIcon>
+                      <CampaignIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Broadcast Message" />
+                  </ListItemButton>
+                </ListItem>
+              </>
             )}
             {/* NEW AI ASSISTANT LINK */}
             <ListItem key="ai-assistant" disablePadding>
@@ -170,9 +278,22 @@ const MainLayout: React.FC = () => {
                 {/* Add onClick handler to the button */}
                 <ListItemButton onClick={() => handleSelectUser(user)}>
                   <ListItemIcon>
-                    <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}>
-                      <PersonIcon fontSize="small" />
-                    </Avatar>
+                    {/* NEW: Conditionally render the online badge */}
+                    {onlineUsers.includes(user._id) ? (
+                      <StyledBadge
+                        overlap="circular"
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        variant="dot"
+                      >
+                        <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}>
+                          <PersonIcon fontSize="small" />
+                        </Avatar>
+                      </StyledBadge>
+                    ) : (
+                      <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}>
+                        <PersonIcon fontSize="small" />
+                      </Avatar>
+                    )}
                   </ListItemIcon>
                   <ListItemText primary={user.username} />
                 </ListItemButton>
