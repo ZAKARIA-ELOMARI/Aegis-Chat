@@ -22,7 +22,13 @@ connectDB();
 
 const app = express();
 const cookieParser = require('cookie-parser');
+const csrf = require('csurf');
+
 app.use(cookieParser());
+
+// CSRF protection middleware
+const csrfProtection = csrf({ cookie: true });
+app.use(csrfProtection);
 const server = http.createServer(app); // <-- Create an HTTP server from our Express app
 
 // --- Configure Socket.IO ---
@@ -140,6 +146,11 @@ const attachIo = (req, res, next) => {
 };
 app.use(attachIo);
 app.use(morgan('combined', { stream: logger.stream }));
+
+// An endpoint for the frontend to get the CSRF token
+app.get('/api/csrf-token', (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
 
 // --- Routes ---
 app.use('/api/auth', require('./routes/auth.routes'));

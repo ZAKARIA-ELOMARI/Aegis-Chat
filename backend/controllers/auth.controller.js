@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
 const logger = require('../config/logger');
 const crypto = require('crypto');
+const zxcvbn = require('zxcvbn');
 const TokenBlocklist = require('../models/tokenBlocklist.model');
 const { createAccessToken, createRefreshToken } = require('../utils/jwt.utils');
 const { sendEmail } = require('../utils/email.util');
@@ -18,7 +19,7 @@ exports.register = async (req, res) => {
     }
     const userExists = await User.findOne({ email });
     if (userExists) {
-      return res.status(400).json({ message: "A user with this email already exists." });
+      return res.status(400).json({ message: "Invalid request." });
     }
     const employeeRole = await Role.findOne({ name: 'Employee' });
     if (!employeeRole) {
@@ -98,6 +99,16 @@ exports.setInitialPassword = async (req, res) => {
     if (req.user.scope !== 'SET_INITIAL_PASSWORD') {
         return res.status(403).json({ message: 'Forbidden: Invalid token scope.'});
     }
+    
+    // Validate password strength
+    const strength = zxcvbn(newPassword);
+    if (strength.score < 3) { // Score is 0-4
+      return res.status(400).json({ 
+        message: 'Password is too weak.', 
+        suggestions: strength.feedback.suggestions 
+      });
+    }
+    
     const user = await User.findById(userId);
     if (!user || user.status !== 'pending') {
       return res.status(400).json({ message: 'This account is not pending activation or does not exist.' });
@@ -210,6 +221,17 @@ exports.forgotPassword = async (req, res) => {
 // @access Public
 exports.resetPassword = async (req, res) => {
     try {
+        const { newPassword } = req.body;
+        
+        // Validate password strength
+        const strength = zxcvbn(newPassword);
+        if (strength.score < 3) { // Score is 0-4
+          return res.status(400).json({ 
+            message: 'Password is too weak.', 
+            suggestions: strength.feedback.suggestions 
+          });
+        }
+        
         const hashedToken = crypto
             .createHash('sha256')
             .update(req.params.token)
@@ -227,7 +249,7 @@ exports.resetPassword = async (req, res) => {
 
         // Set the new password
         const salt = await bcrypt.genSalt(10);
-        user.passwordHash = await bcrypt.hash(req.body.newPassword, salt);
+        user.passwordHash = await bcrypt.hash(newPassword, salt);
         user.status = 'active'; // Ensure the user is active
 
         // Clear the reset token fields

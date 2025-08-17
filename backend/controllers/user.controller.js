@@ -24,7 +24,7 @@ exports.setPublicKey = async (req, res) => {
     }
 
     // Find the logged-in user by their ID (from the auth middleware) and update their document
-    const user = await User.findByIdAndUpdate(req.user.id, { publicKey }, { new: true });
+    const user = await User.findByIdAndUpdate(req.user.sub, { publicKey }, { new: true });
 
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });

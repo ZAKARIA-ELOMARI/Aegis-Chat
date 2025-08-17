@@ -19,6 +19,7 @@
     "clamscan": "^2.4.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "csurf": "^1.2.2",
     "dotenv": "^17.0.0",
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.1",
@@ -35,7 +36,8 @@
     "socket.io": "^4.8.1",
     "speakeasy": "^2.0.0",
     "winston": "^3.17.0",
-    "winston-mongodb": "^7.0.0"
+    "winston-mongodb": "^7.0.0",
+    "zxcvbn": "^4.4.2"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",

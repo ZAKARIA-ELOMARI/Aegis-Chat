@@ -34,6 +34,8 @@ import BroadcastPanel from '../components/BroadcastPanel';
 import type { User } from '../types/user';
 import { getSocket } from '../api/socketClient';
 import type { Message } from '../types/message';
+import { getKeys, decryptMessage } from '../utils/crypto'; // ADD THIS LINE
+
 
 // NEW: Create a styled component for our online indicator dot
 const StyledBadge = styled(Badge)(({ theme }) => ({
@@ -105,26 +107,55 @@ const MainLayout: React.FC = () => {
     const socket = getSocket(accessToken);
 
     const handlePrivateMessage = (newMessage: { content: string, senderId: string }) => {
-        // Get the LATEST state directly from the store inside the handler
-        const { selectedUser } = useUserStore.getState();
+        // Get the LATEST state directly from the stores inside the handler
+        const { users, selectedUser, addMessage } = useUserStore.getState();
+        const { userId: currentUserId } = useAuthStore.getState();
 
-        // Only add the message to the state if the chat with the sender is currently open
+        // Only process the message if the chat with the sender is currently open
         if (selectedUser && newMessage.senderId === selectedUser._id) {
-            const currentUserId = useAuthStore.getState().userId;
+            
+            // --- START E2EE DECRYPTION LOGIC ---
+
+            // 1. Get the current user's (the receiver's) keys.
+            const myKeys = getKeys();
+            // 2. Find the sender's full user object to get their public key.
+            const sender = users.find(u => u._id === newMessage.senderId);
+
+            // 3. CRITICAL CHECK: Ensure we have all keys needed for decryption.
+            if (!myKeys || !myKeys.secretKey || !sender || !sender.publicKey) {
+                console.error("Cannot decrypt message. Cryptographic keys are missing.");
+                // Optionally, display an error message in the chat window
+                addMessage({
+                    _id: new Date().toISOString(),
+                    sender: newMessage.senderId,
+                    recipient: currentUserId!,
+                    content: "[Could not decrypt message: Keys unavailable]",
+                    createdAt: new Date().toISOString(),
+                });
+                return;
+            }
+
+            // 4. Decrypt the message content using our utility function.
+            const decryptedContent = decryptMessage(
+                newMessage.content,
+                sender.publicKey,
+                myKeys.secretKey
+            );
+
+            // --- END E2EE DECRYPTION LOGIC ---
 
             const messagePayload: Message = {
                 _id: new Date().toISOString(),
-                content: newMessage.content,
+                content: decryptedContent || "[Decryption Failed]", // 5. Use decrypted content
                 sender: newMessage.senderId,
                 recipient: currentUserId!,
                 createdAt: new Date().toISOString(),
             };
 
-            // Call the action directly from the store's state
-            useUserStore.getState().addMessage(messagePayload);
+            // Call the action to add the now-decrypted message to the UI
+            addMessage(messagePayload);
         } else {
-            // Optional: Here you could implement a notification for a new message
-            // from a user whose chat window is not open.
+            // This part handles notifications for inactive chats
             console.log(`Received message from ${newMessage.senderId}, but their chat is not active.`);
         }
     };

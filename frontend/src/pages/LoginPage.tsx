@@ -14,6 +14,9 @@ import apiClient from '../api/apiClient';
 import useAuthStore from '../store/authStore';
 import { jwtDecode } from 'jwt-decode';
 
+import { getKeys, generateAndStoreKeys } from '../utils/crypto'; // Import your new crypto functions
+
+
 interface DecodedToken {
   sub: string;
   isTwoFactorEnabled: boolean; // Add this
@@ -45,6 +48,17 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
 
+
+  const handleKeyGeneration = async () => {
+    // Check if keys already exist in localStorage
+    if (!getKeys()) {
+      console.log('No keys found, generating new key pair...');
+      await generateAndStoreKeys();
+    } else {
+      console.log('Existing keys found.');
+    }
+  };
+
   const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
@@ -71,6 +85,7 @@ const LoginPage: React.FC = () => {
         const { accessToken } = response.data;
         const decodedToken: DecodedToken = jwtDecode(accessToken);
         login(accessToken, decodedToken.sub, decodedToken.isTwoFactorEnabled, decodedToken.role);
+        await handleKeyGeneration();
         navigate('/dashboard');
       }
     } catch (err) {
@@ -99,6 +114,7 @@ const LoginPage: React.FC = () => {
       const { accessToken } = response.data;
       const decodedToken: DecodedToken = jwtDecode(accessToken);
       login(accessToken, decodedToken.sub, decodedToken.isTwoFactorEnabled, decodedToken.role);
+      await handleKeyGeneration();
       navigate('/dashboard');
 
     } catch (err) {

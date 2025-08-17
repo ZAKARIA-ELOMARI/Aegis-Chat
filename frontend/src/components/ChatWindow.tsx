@@ -4,8 +4,10 @@ import { Box, TextField, Button, Paper, Typography, IconButton } from '@mui/mate
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import useUserStore from '../store/userStore';
 import useAuthStore from '../store/authStore';
+import type { Message } from '../types/message';
 import apiClient from '../api/apiClient';
 import { getSocket } from '../api/socketClient';
+import { getKeys, encryptMessage, decryptMessage } from '../utils/crypto';
 
 const ChatWindow: React.FC = () => {
   const { selectedUser, messages, setMessages, addMessage, typingUser } = useUserStore();
@@ -27,15 +29,52 @@ const ChatWindow: React.FC = () => {
     if (selectedUser) {
       const fetchHistory = async () => {
         try {
-          const response = await apiClient.get(`/messages/${selectedUser._id}`);
-          setMessages(response.data);
+          const response = await apiClient.get<Message[]>(`/messages/${selectedUser._id}`);
+          const historicalMessages = response.data;
+
+          // --- START E2EE DECRYPTION FOR HISTORY ---
+
+          // 1. Get our keys and the public key of the person we are chatting with.
+          const myKeys = getKeys();
+          const theirPublicKey = selectedUser.publicKey;
+
+          if (!myKeys || !myKeys.secretKey || !theirPublicKey) {
+            console.error("Cannot decrypt history, keys are missing.");
+            // Display encrypted messages as is, or show an error state
+            setMessages(historicalMessages); 
+            return;
+          }
+
+          // 2. Map over each historical message and decrypt its content.
+          const decryptedMessages = historicalMessages.map(msg => {
+            // We need to know who the sender was to use the correct public key.
+            const isMyMessage = msg.sender === currentUserId;
+            
+            const decryptedContent = decryptMessage(
+              msg.content,
+              isMyMessage ? selectedUser.publicKey! : theirPublicKey, // Use recipient's key if I sent it
+              myKeys.secretKey
+            );
+
+            // Return a new message object with the decrypted content.
+            return {
+              ...msg,
+              content: decryptedContent || "[Decryption Failed]",
+            };
+          });
+
+          // --- END E2EE DECRYPTION FOR HISTORY ---
+
+          // 3. Set the component's state with the fully decrypted messages.
+          setMessages(decryptedMessages);
+
         } catch (error) {
-          console.error('Failed to fetch message history:', error);
+          console.error('Failed to fetch or decrypt message history:', error);
         }
       };
       fetchHistory();
     }
-  }, [selectedUser, setMessages]);
+  }, [selectedUser, setMessages, currentUserId]); // Added currentUserId to dependency array
 
   // Function to handle when a file is selected
   // Function to handle when a file is selected
@@ -62,34 +101,63 @@ const ChatWindow: React.FC = () => {
     }, 1500);
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  // File: frontend/src/components/ChatWindow.tsx
+
+const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Basic validation to ensure we have everything we need
     if (!newMessage.trim() || !selectedUser || !accessToken || !currentUserId) {
         return;
     }
 
+    // --- START E2EE LOGIC ---
+
+    // 1. Get the current user's secret key from local storage.
+    const myKeys = getKeys();
+    // 2. Get the recipient's public key from the user object in our state.
+    const recipientPublicKey = selectedUser.publicKey;
+
+    // 3. CRITICAL CHECK: Ensure both keys are available before proceeding.
+    if (!myKeys || !myKeys.secretKey || !recipientPublicKey) {
+        alert('Cannot send message. Cryptographic keys are missing for you or the recipient.');
+        console.error("Encryption keys are missing.", { myKeys, recipientPublicKey });
+        return;
+    }
+
     try {
+        // 4. Encrypt the plaintext message using our utility function.
+        const encryptedContent = encryptMessage(
+            newMessage,
+            recipientPublicKey,
+            myKeys.secretKey
+        );
+        
+        // --- END E2EE LOGIC ---
+
         const socket = getSocket(accessToken);
         const messageData = {
             senderId: currentUserId,
             recipientId: selectedUser._id,
-            content: newMessage,
+            content: encryptedContent, // 5. Send the encrypted payload string.
         };
 
         socket.emit('privateMessage', messageData);
 
+        // 6. Optimistically add the PLAINTEXT message to our own UI immediately.
+        //    This makes the app feel responsive. We don't need to decrypt our own message.
         addMessage({
-            _id: new Date().toISOString(),
+            _id: new Date().toISOString(), // Temporary ID for rendering
             sender: currentUserId,
             recipient: selectedUser._id,
-            content: newMessage,
+            content: newMessage, // Use original plaintext for our own view
             createdAt: new Date().toISOString(),
         });
 
         setNewMessage('');
     } catch (error) {
-        console.error('Failed to send message:', error);
+        console.error('Failed to encrypt or send message:', error);
+        alert('A cryptographic error occurred. Could not send message.');
     }
   };
 
