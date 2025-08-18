@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 // Define all possible permissions in the system
 const PERMISSIONS = [
   'CREATE_USER',
+  'DELETE_USER',
   'DEACTIVATE_USER',
   'RESET_USER_PASSWORD',
   'VIEW_SYSTEM_LOGS',

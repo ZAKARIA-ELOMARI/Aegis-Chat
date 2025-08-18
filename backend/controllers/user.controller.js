@@ -6,8 +6,8 @@ const logger = require('../config/logger');
 // @access Private
 exports.getAllUsers = async (req, res) => {
   try {
-    // This will now automatically include the new 'publicKey' field
-    const users = await User.find().select('-passwordHash');
+    // This will now automatically include the role information
+    const users = await User.find().populate('role').select('-passwordHash');
     res.json(users);
   } catch (err) {
     logger.error('Error retrieving all users:', { error: err.message, userId: req.user?.id });

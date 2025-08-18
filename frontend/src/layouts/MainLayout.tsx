@@ -24,6 +24,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import SecurityIcon from '@mui/icons-material/Security';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import GroupIcon from '@mui/icons-material/Group';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import apiClient from '../api/apiClient';
@@ -261,6 +262,15 @@ const MainLayout: React.FC = () => {
                       <AdminPanelSettingsIcon />
                     </ListItemIcon>
                     <ListItemText primary="User Management" />
+                  </ListItemButton>
+                </ListItem>
+                {/* NEW LINK FOR ROLE MANAGEMENT */}
+                <ListItem key="admin-roles" disablePadding>
+                  <ListItemButton onClick={() => navigate('/admin/roles')}>
+                    <ListItemIcon>
+                      <GroupIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Role Management" />
                   </ListItemButton>
                 </ListItem>
                 {/* NEW LINK FOR LOGS */}

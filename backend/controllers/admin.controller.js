@@ -2,7 +2,49 @@ const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
 const logger = require('../config/logger');
 const mongoose = require('mongoose');
-const Message = require('../models/message.model')
+const Message = require('../models/message.model');
+const { Role } = require('../models/role.model');
+
+// @desc   Delete a user
+// @route  DELETE /api/admin/users/:userId
+// @access Admin-only
+exports.deleteUser = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Prevent deletion of the current admin user
+    if (userId === req.user.sub) {
+      return res.status(400).json({ message: 'You cannot delete your own account.' });
+    }
+
+    // Delete the user
+    await User.findByIdAndDelete(userId);
+
+    logger.info(`User deleted successfully by admin`, { 
+      deletedUserId: userId, 
+      deletedUsername: user.username,
+      adminId: req.user.sub 
+    });
+
+    res.status(200).json({
+      message: `User '${user.username}' has been deleted successfully.`,
+    });
+
+  } catch (error) {
+    logger.error('Server error while deleting user:', { 
+      error: error.message, 
+      userId: req.params.userId,
+      adminId: req.user.sub 
+    });
+    res.status(500).json({ message: 'Server error while deleting user.' });
+  }
+};
 
 // @desc   Update a user's status (deactivate/reactivate)
 // @route  PUT /api/admin/users/:userId/status
@@ -127,5 +169,198 @@ exports.broadcastMessage = async (req, res) => {
   } catch (error) {
     logger.error('Failed to send broadcast message', { error: error.message });
     res.status(500).json({ message: 'Server error during broadcast.' });
+  }
+};
+
+// @desc   Get all roles
+// @route  GET /api/admin/roles
+// @access Admin-only
+exports.getAllRoles = async (req, res) => {
+  try {
+    const roles = await Role.find();
+    res.status(200).json(roles);
+  } catch (error) {
+    logger.error('Failed to fetch roles', { error: error.message });
+    res.status(500).json({ message: 'Server error while fetching roles.' });
+  }
+};
+
+// @desc   Create a new role
+// @route  POST /api/admin/roles
+// @access Admin-only
+exports.createRole = async (req, res) => {
+  try {
+    const { name, permissions } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: 'Role name is required.' });
+    }
+
+    const existingRole = await Role.findOne({ name });
+    if (existingRole) {
+      return res.status(400).json({ message: 'Role with this name already exists.' });
+    }
+
+    const role = new Role({
+      name,
+      permissions: permissions || []
+    });
+
+    await role.save();
+
+    logger.info(`Role created successfully`, { 
+      roleId: role._id, 
+      roleName: role.name,
+      adminId: req.user.sub 
+    });
+
+    res.status(201).json({
+      message: 'Role created successfully.',
+      role
+    });
+
+  } catch (error) {
+    logger.error('Failed to create role', { error: error.message });
+    res.status(500).json({ message: 'Server error while creating role.' });
+  }
+};
+
+// @desc   Update a role
+// @route  PUT /api/admin/roles/:roleId
+// @access Admin-only
+exports.updateRole = async (req, res) => {
+  try {
+    const { name, permissions } = req.body;
+    const roleId = req.params.roleId;
+
+    const role = await Role.findById(roleId);
+    if (!role) {
+      return res.status(404).json({ message: 'Role not found.' });
+    }
+
+    if (name) {
+      const existingRole = await Role.findOne({ name, _id: { $ne: roleId } });
+      if (existingRole) {
+        return res.status(400).json({ message: 'Role with this name already exists.' });
+      }
+      role.name = name;
+    }
+
+    if (permissions !== undefined) {
+      role.permissions = permissions;
+    }
+
+    await role.save();
+
+    logger.info(`Role updated successfully`, { 
+      roleId: role._id, 
+      roleName: role.name,
+      adminId: req.user.sub 
+    });
+
+    res.status(200).json({
+      message: 'Role updated successfully.',
+      role
+    });
+
+  } catch (error) {
+    logger.error('Failed to update role', { error: error.message });
+    res.status(500).json({ message: 'Server error while updating role.' });
+  }
+};
+
+// @desc   Delete a role
+// @route  DELETE /api/admin/roles/:roleId
+// @access Admin-only
+exports.deleteRole = async (req, res) => {
+  try {
+    const roleId = req.params.roleId;
+
+    const role = await Role.findById(roleId);
+    if (!role) {
+      return res.status(404).json({ message: 'Role not found.' });
+    }
+
+    // Check if any users are assigned to this role
+    const usersWithRole = await User.findOne({ role: roleId });
+    if (usersWithRole) {
+      return res.status(400).json({ 
+        message: 'Cannot delete role. There are users assigned to this role. Please reassign them first.' 
+      });
+    }
+
+    await Role.findByIdAndDelete(roleId);
+
+    logger.info(`Role deleted successfully`, { 
+      roleId, 
+      roleName: role.name,
+      adminId: req.user.sub 
+    });
+
+    res.status(200).json({
+      message: `Role '${role.name}' has been deleted successfully.`,
+    });
+
+  } catch (error) {
+    logger.error('Failed to delete role', { error: error.message });
+    res.status(500).json({ message: 'Server error while deleting role.' });
+  }
+};
+
+// @desc   Update user role
+// @route  PUT /api/admin/users/:userId/role
+// @access Admin-only
+exports.updateUserRole = async (req, res) => {
+  try {
+    const { roleId } = req.body;
+    const userId = req.params.userId;
+
+    if (!roleId) {
+      return res.status(400).json({ message: 'Role ID is required.' });
+    }
+
+    // Verify the role exists
+    const role = await Role.findById(roleId);
+    if (!role) {
+      return res.status(404).json({ message: 'Role not found.' });
+    }
+
+    // Update the user
+    const user = await User.findByIdAndUpdate(
+      userId, 
+      { role: roleId }, 
+      { new: true }
+    ).populate('role');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    logger.info(`User role updated successfully`, { 
+      userId, 
+      username: user.username,
+      newRoleId: roleId,
+      newRoleName: role.name,
+      adminId: req.user.sub 
+    });
+
+    res.status(200).json({
+      message: `User '${user.username}' role updated to '${role.name}' successfully.`,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        status: user.status
+      }
+    });
+
+  } catch (error) {
+    logger.error('Server error while updating user role:', { 
+      error: error.message, 
+      userId: req.params.userId,
+      adminId: req.user.sub 
+    });
+    res.status(500).json({ message: 'Server error while updating user role.' });
   }
 };

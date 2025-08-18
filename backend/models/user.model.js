@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 // This is the blueprint for a User in our database.
 const userSchema = new mongoose.Schema({

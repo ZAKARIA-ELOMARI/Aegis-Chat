@@ -13,7 +13,7 @@ const { sendEmail } = require('../utils/email.util');
 // Register a new user
 exports.register = async (req, res) => {
   try {
-    const { username, email } = req.body;
+    const { username, email, roleId } = req.body;
     if (!email || !username) {
       return res.status(400).json({ message: 'Please provide a name and an email.' });
     }
@@ -21,11 +21,23 @@ exports.register = async (req, res) => {
     if (userExists) {
       return res.status(400).json({ message: "Invalid request." });
     }
-    const employeeRole = await Role.findOne({ name: 'Employee' });
-    if (!employeeRole) {
+
+    let assignedRole;
+    
+    // If roleId is provided (admin creating user), use it; otherwise use default Employee role
+    if (roleId) {
+      assignedRole = await Role.findById(roleId);
+      if (!assignedRole) {
+        return res.status(400).json({ message: "Invalid role selected." });
+      }
+    } else {
+      assignedRole = await Role.findOne({ name: 'Employee' });
+      if (!assignedRole) {
         logger.error("Default 'Employee' role not found in the database.");
         return res.status(500).json({ message: "Server configuration error: Default role not found."});
+      }
     }
+
     const tempPassword = crypto.randomBytes(8).toString('hex');
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(tempPassword, salt);
@@ -33,13 +45,18 @@ exports.register = async (req, res) => {
       username,
       email,
       passwordHash,
-      role: employeeRole._id,
+      role: assignedRole._id,
       status: 'pending'
     });
     if (user) {
       res.status(201).json({
         message: 'User registered successfully.',
-        user: { id: user._id, username: user.username, email: user.email },
+        user: { 
+          id: user._id, 
+          username: user.username, 
+          email: user.email,
+          role: assignedRole.name 
+        },
         tempPassword: tempPassword
       });
     } else {

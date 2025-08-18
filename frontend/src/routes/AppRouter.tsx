@@ -12,6 +12,7 @@ import SecurityPage from '../pages/SecurityPage';
 import AdminUsersPage from '../pages/AdminUsersPage';
 import AdminLogsPage from '../pages/AdminLogsPage';
 import AdminBroadcastPage from '../pages/AdminBroadcastPage';
+import AdminRolesPage from '../pages/AdminRolesPage';
 import SetInitialPasswordPage from '../pages/SetInitialPasswordPage';
 
 const AppRouter: React.FC = () => {
@@ -36,6 +37,7 @@ const AppRouter: React.FC = () => {
         <Route element={<AdminRoute />}>
           <Route element={<MainLayout />}>
             <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/roles" element={<AdminRolesPage />} />
             <Route path="/admin/logs" element={<AdminLogsPage />} />
             <Route path="/admin/broadcast" element={<AdminBroadcastPage />} />
           </Route>
