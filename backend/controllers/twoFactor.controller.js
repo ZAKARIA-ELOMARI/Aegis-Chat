@@ -1,6 +1,7 @@
 const User = require('../models/user.model');
 const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
+const logger = require('../config/logger');
 
 // @desc   Generate a new 2FA secret for the logged-in user
 // @route  POST /api/2fa/generate
@@ -69,8 +70,28 @@ exports.verifyAndEnable = async (req, res) => {
         if (verified) {
             user.isTwoFactorEnabled = true;
             await user.save();
+            
+            logger.info(`Two-factor authentication enabled`, { 
+                userId: req.user.sub,
+                username: user.username,
+                email: user.email,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
+            
             res.status(200).json({ message: "Two-factor authentication has been enabled successfully." });
         } else {
+            logger.warn(`Failed 2FA verification attempt`, { 
+                userId: req.user.sub,
+                username: user.username,
+                email: user.email,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
             res.status(400).json({ message: "Invalid 2FA token." });
         }
     } catch (error) {

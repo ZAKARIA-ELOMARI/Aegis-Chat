@@ -74,22 +74,65 @@ exports.login = async (req, res) => {
         const { email, password } = req.body;
         const user = await User.findOne({ email });
 
-        if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+        if (!user) {
+            logger.warn(`Failed login attempt - user not found`, { 
+                email, 
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
+            return res.status(401).json({ message: 'Invalid credentials.' });
+        }
+
+        if (!(await bcrypt.compare(password, user.passwordHash))) {
+            logger.warn(`Failed login attempt - invalid password`, { 
+                email, 
+                userId: user._id,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
             return res.status(401).json({ message: 'Invalid credentials.' });
         }
 
         // Handle different user statuses
         if (user.status === 'pending') {
             const tempToken = jwt.sign({ sub: user.id, scope: 'SET_INITIAL_PASSWORD' }, process.env.JWT_SECRET, { expiresIn: '15m' });
+            logger.info(`User login - initial password setup required`, { 
+                userId: user._id,
+                email: user.email,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
             return res.status(200).json({ message: "Login successful. Please set your initial password.", initialPasswordSetupRequired: true, tempToken });
         }
         if (user.status === 'deactivated') {
+            logger.warn(`Login attempt on deactivated account`, { 
+                userId: user._id,
+                email: user.email,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
              return res.status(403).json({ message: `Account is deactivated.`});
         }
 
         // Handle 2FA for active users
         if (user.isTwoFactorEnabled) {
             const tempToken = jwt.sign({ sub: user.id, scope: '2FA_LOGIN' }, process.env.JWT_SECRET, { expiresIn: '10m' });
+            logger.info(`User login - 2FA required`, { 
+                userId: user._id,
+                email: user.email,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
             return res.status(200).json({ message: "Please provide your 2FA token.", twoFactorRequired: true, tempToken });
         }
 
@@ -97,7 +140,46 @@ exports.login = async (req, res) => {
         const accessToken = await createAccessToken(user);
         const refreshToken = createRefreshToken(user);
         user.refreshToken = refreshToken;
+
+        // Check for new device login
+        const currentIp = req.ip;
+        const currentUserAgent = req.get('User-Agent');
+        const isNewDevice = !user.lastLoginInfo || 
+                           user.lastLoginInfo.ip !== currentIp || 
+                           user.lastLoginInfo.userAgent !== currentUserAgent;
+
+        if (isNewDevice && user.lastLoginInfo) {
+            logger.warn(`Login from new device detected`, { 
+                userId: user._id,
+                email: user.email,
+                newIp: currentIp,
+                newUserAgent: currentUserAgent,
+                previousIp: user.lastLoginInfo.ip,
+                previousUserAgent: user.lastLoginInfo.userAgent,
+                previousLogin: user.lastLoginInfo.timestamp,
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
+        }
+
+        // Update last login info
+        user.lastLoginInfo = {
+            ip: currentIp,
+            userAgent: currentUserAgent,
+            timestamp: new Date()
+        };
+
         await user.save();
+
+        logger.info(`Successful login`, { 
+            userId: user._id,
+            email: user.email,
+            ip: req.ip,
+            userAgent: req.get('User-Agent'),
+            isNewDevice,
+            timestamp: new Date().toISOString(),
+            type: 'SECURITY_EVENT'
+        });
 
         res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 });
         res.status(200).json({ message: 'Login successful.', accessToken });
@@ -161,10 +243,58 @@ exports.verifyLogin2FA = async (req, res) => {
             const accessToken = await createAccessToken(user);
             const refreshToken = createRefreshToken(user);
             user.refreshToken = refreshToken;
+
+            // Check for new device login in 2FA
+            const currentIp = req.ip;
+            const currentUserAgent = req.get('User-Agent');
+            const isNewDevice = !user.lastLoginInfo || 
+                               user.lastLoginInfo.ip !== currentIp || 
+                               user.lastLoginInfo.userAgent !== currentUserAgent;
+
+            if (isNewDevice && user.lastLoginInfo) {
+                logger.warn(`2FA login from new device detected`, { 
+                    userId: user._id,
+                    email: user.email,
+                    newIp: currentIp,
+                    newUserAgent: currentUserAgent,
+                    previousIp: user.lastLoginInfo.ip,
+                    previousUserAgent: user.lastLoginInfo.userAgent,
+                    previousLogin: user.lastLoginInfo.timestamp,
+                    timestamp: new Date().toISOString(),
+                    type: 'SECURITY_EVENT'
+                });
+            }
+
+            // Update last login info
+            user.lastLoginInfo = {
+                ip: currentIp,
+                userAgent: currentUserAgent,
+                timestamp: new Date()
+            };
+
             await user.save();
+            
+            logger.info(`Successful 2FA login verification`, { 
+                userId: user._id,
+                email: user.email,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                isNewDevice,
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
+            
             res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 });
             res.status(200).json({ message: 'Login successful.', accessToken });
         } else {
+            logger.warn(`Failed 2FA login verification`, { 
+                userId: user._id,
+                email: user.email,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
             res.status(401).json({ message: "Invalid 2FA token." });
         }
     } catch (error) {
@@ -180,8 +310,22 @@ exports.logout = async (req, res) => {
         const decoded = jwt.decode(token);
         const blocklistedToken = new TokenBlocklist({ jti: decoded.jti, expiresAt: new Date(decoded.exp * 1000) });
         await blocklistedToken.save();
+
+        // Find user for logging
+        const user = await User.findById(decoded.sub);
+        
+        logger.info(`User logout`, { 
+            userId: decoded.sub,
+            email: user?.email || 'Unknown',
+            ip: req.ip,
+            userAgent: req.get('User-Agent'),
+            timestamp: new Date().toISOString(),
+            type: 'SECURITY_EVENT'
+        });
+
         res.status(200).json({ message: "You have been successfully logged out." });
     } catch (error) {
+        logger.error('Error during logout:', { error: error.message });
         res.status(500).json({ message: "Error logging out."});
     }
 };
@@ -195,6 +339,15 @@ exports.forgotPassword = async (req, res) => {
     const user = await User.findOne({ email });
 
     if (!user) {
+      // Log suspicious password reset attempt for non-existent user
+      logger.warn(`Password reset attempted for non-existent email`, {
+        email,
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        timestamp: new Date().toISOString(),
+        type: 'SECURITY_EVENT'
+      });
+
       // Note: We send a success response even if the user doesn't exist
       // to prevent user enumeration attacks.
       return res.status(200).json({ message: 'If a user with that email exists, a password reset link has been sent.' });
@@ -203,6 +356,15 @@ exports.forgotPassword = async (req, res) => {
     // Generate the reset token using the method we added to the user model
     const resetToken = user.createPasswordResetToken();
     await user.save({ validateBeforeSave: false }); // Save the user with the new token fields
+
+    logger.info(`Password reset requested`, {
+      userId: user._id,
+      email: user.email,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+      type: 'SECURITY_EVENT'
+    });
 
     // Create the reset URL
     // In a real frontend app, this would point to your password reset page
@@ -261,6 +423,13 @@ exports.resetPassword = async (req, res) => {
         });
 
         if (!user) {
+            logger.warn(`Invalid password reset token used`, {
+                token: req.params.token,
+                ip: req.ip,
+                userAgent: req.get('User-Agent'),
+                timestamp: new Date().toISOString(),
+                type: 'SECURITY_EVENT'
+            });
             return res.status(400).json({ message: 'Token is invalid or has expired.' });
         }
 
@@ -274,6 +443,15 @@ exports.resetPassword = async (req, res) => {
         user.passwordResetExpires = undefined;
 
         await user.save();
+
+        logger.info(`Password successfully reset via email link`, {
+            userId: user._id,
+            email: user.email,
+            ip: req.ip,
+            userAgent: req.get('User-Agent'),
+            timestamp: new Date().toISOString(),
+            type: 'SECURITY_EVENT'
+        });
 
         // Optionally, log the user in and send a new JWT token
         res.status(200).json({ message: 'Password has been successfully reset.' });

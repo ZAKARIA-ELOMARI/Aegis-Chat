@@ -1,4 +1,5 @@
 const rateLimit = require('express-rate-limit');
+const logger = require('../config/logger');
 
 // Limiter for authentication routes (login, password resets, etc.)
 // More strict: 10 requests per 15 minutes
@@ -8,6 +9,21 @@ const authLimiter = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   message: 'Too many login attempts from this IP, please try again after 15 minutes',
+  handler: (req, res, next, options) => {
+    // Log the rate limit violation
+    logger.warn(`Authentication rate limit exceeded`, {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      path: req.path,
+      method: req.method,
+      timestamp: new Date().toISOString(),
+      type: 'SECURITY_EVENT',
+      rateLimitType: 'AUTH_LIMIT_EXCEEDED'
+    });
+    
+    // Send the standard rate limit response
+    res.status(options.statusCode).json({ message: options.message });
+  },
 });
 
 // Limiter for more general API usage (e.g., file uploads, AI chat)
@@ -18,6 +34,21 @@ const apiLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many requests from this IP, please try again after 15 minutes',
+    handler: (req, res, next, options) => {
+      // Log the rate limit violation
+      logger.warn(`API rate limit exceeded`, {
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        path: req.path,
+        method: req.method,
+        timestamp: new Date().toISOString(),
+        type: 'SECURITY_EVENT',
+        rateLimitType: 'API_LIMIT_EXCEEDED'
+      });
+      
+      // Send the standard rate limit response
+      res.status(options.statusCode).json({ message: options.message });
+    },
 });
 
 module.exports = {

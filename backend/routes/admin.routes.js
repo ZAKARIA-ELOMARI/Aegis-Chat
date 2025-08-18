@@ -4,6 +4,7 @@ const {
   updateUserStatus, 
   resetUserPassword, 
   getSystemLogs, 
+  clearSystemLogs,
   broadcastMessage, 
   deleteUser,
   getAllRoles,
@@ -40,6 +41,9 @@ router.post('/users/:userId/reset-password', checkPermission('RESET_USER_PASSWOR
 
 // Route to get system logs
 router.get('/logs', checkPermission('VIEW_SYSTEM_LOGS'), getSystemLogs);
+
+// Route to clear system logs
+router.delete('/logs', checkPermission('VIEW_SYSTEM_LOGS'), clearSystemLogs);
 
 // Route to send a broadcast message
 router.post('/broadcast', checkPermission('BROADCAST_MESSAGE'), broadcastMessage);

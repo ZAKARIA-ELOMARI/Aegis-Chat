@@ -64,6 +64,20 @@ exports.updateUserStatus = async (req, res) => {
       return res.status(404).json({ message: 'User not found.' });
     }
 
+    const currentUser = await User.findById(req.user.sub);
+    logger.warn(`Admin updated user status`, { 
+      targetUserId: userId,
+      targetUsername: user.username,
+      newStatus: status,
+      previousStatus: user.status,
+      adminId: req.user.sub,
+      adminUsername: currentUser?.username || 'Unknown',
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+      type: 'SECURITY_EVENT'
+    });
+
     res.status(200).json({
       message: `User status updated successfully to '${status}'.`,
       user: user
@@ -100,6 +114,19 @@ exports.resetUserPassword = async (req, res) => {
 
       await user.save();
 
+      const currentUser = await User.findById(req.user.sub);
+      logger.warn(`Admin reset password for user`, { 
+        targetUserId: userId,
+        targetUsername: user.username,
+        adminId: req.user.sub,
+        adminUsername: currentUser?.username || 'Unknown',
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        timestamp: new Date().toISOString(),
+        type: 'SECURITY_EVENT',
+        details: '2FA disabled and account set to pending status'
+      });
+
       res.status(200).json({
         message: `Password for user '${user.username}' has been reset and their 2FA has been disabled. Please provide them with the new temporary password to complete the process.`,
         username: user.username,
@@ -118,6 +145,7 @@ exports.getSystemLogs = async (req, res) => {
         // 1. Sanitize and validate pagination parameters from user input.
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 50;
+        const securityOnly = req.query.securityOnly === 'true'; // Filter for security events only
 
         // 2. Ensure values are positive and cap the limit to prevent abuse.
         const pageNumber = Math.max(1, page);
@@ -132,13 +160,50 @@ exports.getSystemLogs = async (req, res) => {
         
         const logCollection = mongoose.connection.db.collection('logs');
         
-        // 3. Use the sanitized and capped values in the database query.
-        const logs = await logCollection.find({}, options).toArray();
+        // 3. Build query filter - only show security events if requested
+        let filter = {};
+        if (securityOnly) {
+            filter = {
+                $or: [
+                    { 'meta.type': 'SECURITY_EVENT' },
+                    { message: { $regex: /login|authentication|password|2fa|admin|security|unauthorized|deactivated/i } }
+                ]
+            };
+        }
+        
+        // 4. Use the sanitized and capped values in the database query.
+        const logs = await logCollection.find(filter, options).toArray();
 
         res.status(200).json(logs);
     } catch (error) {
         logger.error('Failed to fetch system logs', { error: error.message });
         res.status(500).json({ message: 'Server error while fetching logs.' });
+    }
+};
+
+exports.clearSystemLogs = async (req, res) => {
+    try {
+        const logCollection = mongoose.connection.db.collection('logs');
+        const result = await logCollection.deleteMany({});
+        
+        const currentUser = await User.findById(req.user.sub);
+        logger.warn(`Admin cleared all system logs`, { 
+            adminId: req.user.sub,
+            adminUsername: currentUser?.username || 'Unknown',
+            deletedCount: result.deletedCount,
+            ip: req.ip,
+            userAgent: req.get('User-Agent'),
+            timestamp: new Date().toISOString(),
+            type: 'SECURITY_EVENT'
+        });
+
+        res.status(200).json({ 
+            message: `Successfully cleared ${result.deletedCount} log entries.`,
+            deletedCount: result.deletedCount 
+        });
+    } catch (error) {
+        logger.error('Failed to clear system logs', { error: error.message });
+        res.status(500).json({ message: 'Server error while clearing logs.' });
     }
 };
 

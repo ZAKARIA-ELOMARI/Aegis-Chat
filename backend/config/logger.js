@@ -15,7 +15,7 @@ const options = {
     level: 'info', // Log all messages of level 'info' and above
     db: process.env.MONGO_URI,
     collection: 'logs', // Name of the collection to store logs
-    options: { useUnifiedTopology: true },
+    options: {}, // Remove the deprecated useUnifiedTopology option
     format: winston.format.combine(
       winston.format.timestamp(), // Add a timestamp to each log
       winston.format.json()     // Log in JSON format
