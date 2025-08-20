@@ -216,6 +216,19 @@ exports.setInitialPassword = async (req, res) => {
     user.passwordHash = await bcrypt.hash(newPassword, salt);
     user.status = 'active';
     await user.save();
+
+    logger.warn(`Initial password set successfully`, { 
+      userId: userId,
+      username: user.username,
+      email: user.email,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+      type: 'SECURITY_EVENT',
+      event: 'INITIAL_PASSWORD_SET',
+      details: 'User account activated with new password'
+    });
+    
     return res.status(200).json({ message: 'Password has been updated successfully.' });
   } catch (error) {
     logger.error('Server error during initial password set:', { error: error.message, userId: req.user?.sub });

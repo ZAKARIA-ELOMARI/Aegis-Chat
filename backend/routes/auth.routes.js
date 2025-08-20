@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.middleware');
-const { authLimiter } = require('../middleware/rateLimiter.middleware');
+const { authLimiter, logoutLimiter } = require('../middleware/rateLimiter.middleware');
 
 // --- Import all necessary controller functions ---
 const {
@@ -27,7 +27,7 @@ const {
 router.post('/login', authLimiter, loginRules(), handleValidationErrors, login);
 
 // ** THIS IS THE NEWLY ADDED ROUTE **
-router.post('/logout', auth, logout);
+router.post('/logout', logoutLimiter, auth, logout);
 
 router.post('/set-initial-password', auth, setInitialPasswordRules(), handleValidationErrors, setInitialPassword);
 

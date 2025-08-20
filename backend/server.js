@@ -134,7 +134,24 @@ io.on('connection', (socket) => {
 
 
 // --- Middleware ---
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"], // Only allow content from your own domain by default
+      scriptSrc: ["'self'"], // Allow scripts from your own domain only
+      styleSrc: ["'self'", "'unsafe-inline'"], // Allow CSS from your domain and inline styles (needed for React/Vite)
+      imgSrc: ["'self'", "data:", "blob:"], // Allow images from your domain, data URIs (QR codes), and blob URLs (file uploads)
+      connectSrc: ["'self'", "ws://localhost:*", "wss://localhost:*"], // Allow WebSocket connections for Socket.IO
+      fontSrc: ["'self'", "data:"], // Allow fonts from your domain and data URIs
+      objectSrc: ["'none'"], // Disable plugins like Flash
+      mediaSrc: ["'self'", "blob:"], // Allow media files from your domain and blob URLs
+      frameSrc: ["'none'"], // Disable iframes
+      baseUri: ["'self'"], // Restrict base tag to your domain
+      formAction: ["'self'"], // Restrict form submissions to your domain
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Disable COEP for Socket.IO compatibility
+}));
 app.use(cors({
   origin: 'http://localhost:5173', // Your React app's origin
   credentials: true // Allow cookies to be sent

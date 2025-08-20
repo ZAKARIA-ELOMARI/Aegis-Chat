@@ -124,7 +124,22 @@ exports.resetUserPassword = async (req, res) => {
         userAgent: req.get('User-Agent'),
         timestamp: new Date().toISOString(),
         type: 'SECURITY_EVENT',
+        event: 'PASSWORD_RESET_BY_ADMIN',
         details: '2FA disabled and account set to pending status'
+      });
+
+      // Log separate security event for 2FA disable
+      logger.warn(`Admin disabled 2FA for user during password reset`, { 
+        targetUserId: userId,
+        targetUsername: user.username,
+        adminId: req.user.sub,
+        adminUsername: currentUser?.username || 'Unknown',
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        timestamp: new Date().toISOString(),
+        type: 'SECURITY_EVENT',
+        event: '2FA_DISABLED_BY_ADMIN',
+        reason: 'Password reset by administrator'
       });
 
       res.status(200).json({
@@ -273,10 +288,18 @@ exports.createRole = async (req, res) => {
 
     await role.save();
 
-    logger.info(`Role created successfully`, { 
+    const currentUser = await User.findById(req.user.sub);
+    logger.warn(`Admin created new role`, { 
       roleId: role._id, 
       roleName: role.name,
-      adminId: req.user.sub 
+      permissions: permissions || [],
+      adminId: req.user.sub,
+      adminUsername: currentUser?.username || 'Unknown',
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+      type: 'SECURITY_EVENT',
+      event: 'ROLE_CREATED'
     });
 
     res.status(201).json({
@@ -317,10 +340,18 @@ exports.updateRole = async (req, res) => {
 
     await role.save();
 
-    logger.info(`Role updated successfully`, { 
+    const currentUser = await User.findById(req.user.sub);
+    logger.warn(`Admin updated role`, { 
       roleId: role._id, 
       roleName: role.name,
-      adminId: req.user.sub 
+      permissions: role.permissions,
+      adminId: req.user.sub,
+      adminUsername: currentUser?.username || 'Unknown',
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+      type: 'SECURITY_EVENT',
+      event: 'ROLE_UPDATED'
     });
 
     res.status(200).json({
@@ -356,10 +387,18 @@ exports.deleteRole = async (req, res) => {
 
     await Role.findByIdAndDelete(roleId);
 
-    logger.info(`Role deleted successfully`, { 
+    const currentUser = await User.findById(req.user.sub);
+    logger.warn(`Admin deleted role`, { 
       roleId, 
       roleName: role.name,
-      adminId: req.user.sub 
+      permissions: role.permissions,
+      adminId: req.user.sub,
+      adminUsername: currentUser?.username || 'Unknown',
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+      type: 'SECURITY_EVENT',
+      event: 'ROLE_DELETED'
     });
 
     res.status(200).json({
@@ -390,6 +429,12 @@ exports.updateUserRole = async (req, res) => {
       return res.status(404).json({ message: 'Role not found.' });
     }
 
+    // Get the user with current role before updating
+    const userBeforeUpdate = await User.findById(userId).populate('role');
+    if (!userBeforeUpdate) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
     // Update the user
     const user = await User.findByIdAndUpdate(
       userId, 
@@ -397,16 +442,22 @@ exports.updateUserRole = async (req, res) => {
       { new: true }
     ).populate('role');
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found.' });
-    }
-
-    logger.info(`User role updated successfully`, { 
-      userId, 
-      username: user.username,
+    const currentUser = await User.findById(req.user.sub);
+    logger.warn(`Admin updated user role`, { 
+      targetUserId: userId, 
+      targetUsername: user.username,
+      targetEmail: user.email,
+      previousRoleId: userBeforeUpdate.role._id,
+      previousRoleName: userBeforeUpdate.role.name,
       newRoleId: roleId,
       newRoleName: role.name,
-      adminId: req.user.sub 
+      adminId: req.user.sub,
+      adminUsername: currentUser?.username || 'Unknown',
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+      type: 'SECURITY_EVENT',
+      event: 'USER_ROLE_CHANGED'
     });
 
     res.status(200).json({
