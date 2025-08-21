@@ -15,6 +15,11 @@ const messageSchema = new mongoose.Schema({
     type: Buffer, // Changed from String to Buffer
     required: true,
   },
+  // File URL if the message contains a file attachment
+  fileUrl: {
+    type: String,
+    required: false,
+  },
   conversationId: {
     type: String,
     required: false,
@@ -47,6 +52,9 @@ const messageSchema = new mongoose.Schema({
 }, {
   timestamps: true // Automatically adds createdAt and updatedAt fields
 });
+
+// TTL Index: Automatically delete messages after 24 hours (86400 seconds)
+messageSchema.index({ createdAt: 1 }, { expireAfterSeconds: 86400 });
 
 const Message = mongoose.model('Message', messageSchema);
 

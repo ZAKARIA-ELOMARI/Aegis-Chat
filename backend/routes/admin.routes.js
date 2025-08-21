@@ -17,6 +17,8 @@ const {
 const auth = require('../middleware/auth.middleware'); // Import the auth middleware
 const { checkPermission } = require('../middleware/permission.middleware');
 const { register } = require('../controllers/auth.controller');
+const { runManualCleanup } = require('../services/ephemeralData.service');
+const logger = require('../config/logger');
 
 // **THE FIX IS HERE**
 // Apply the 'auth' middleware to ALL routes in this file.
@@ -65,5 +67,33 @@ router.delete('/roles/:roleId', checkPermission('MANAGE_ROLES'), deleteRole);
 
 // Test route for security logging
 router.post('/test-security-log', checkPermission('MANAGE_ROLES'), testSecurityLog);
+
+// Route to manually trigger ephemeral data cleanup
+router.post('/cleanup-ephemeral-data', checkPermission('MANAGE_SYSTEM'), async (req, res) => {
+  try {
+    logger.info('Manual ephemeral data cleanup triggered by admin', { 
+      adminId: req.user.sub,
+      timestamp: new Date().toISOString()
+    });
+
+    await runManualCleanup();
+
+    res.status(200).json({ 
+      message: 'Ephemeral data cleanup completed successfully',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    logger.error('Manual ephemeral data cleanup failed', { 
+      error: error.message,
+      adminId: req.user.sub
+    });
+    
+    res.status(500).json({ 
+      message: 'Failed to complete ephemeral data cleanup',
+      error: error.message
+    });
+  }
+});
 
 module.exports = router;

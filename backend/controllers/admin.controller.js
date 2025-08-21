@@ -245,23 +245,25 @@ exports.clearSystemLogs = async (req, res) => {
 
 exports.broadcastMessage = async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, fileUrl } = req.body;
     // THE FIX IS HERE: Use req.user.sub instead of req.user.id
     const adminUserId = req.user.sub; 
 
-    if (!content) {
-      return res.status(400).json({ message: 'Broadcast content cannot be empty.' });
+    if (!content && !fileUrl) {
+      return res.status(400).json({ message: 'Broadcast content or file URL must be provided.' });
     }
 
     const broadcast = new Message({
       sender: adminUserId, // Now this will have the correct ID
-      content: Buffer.from(content, 'utf-8'), // Also ensure content is a Buffer
+      content: Buffer.from(content || '', 'utf-8'), // Handle empty content for file-only messages
+      fileUrl: fileUrl || null, // Store file URL if present
       isBroadcast: true,
     });
     await broadcast.save();
 
     req.io.emit('broadcastMessage', {
       content: broadcast.content.toString('utf-8'), // Send content back as a string
+      fileUrl: broadcast.fileUrl, // Include file URL
       sender: adminUserId, // Also fixed here for consistency
       timestamp: broadcast.createdAt,
     });
@@ -277,8 +279,9 @@ exports.broadcastMessage = async (req, res) => {
       `sent broadcast message to all users`,
       req,
       { 
-        messageLength: content.length,
-        messagePreview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+        messageLength: (content || '').length,
+        messagePreview: (content || '').substring(0, 100) + ((content || '').length > 100 ? '...' : ''),
+        hasFile: !!fileUrl
       }
     );
 

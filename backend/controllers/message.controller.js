@@ -23,7 +23,8 @@ exports.getConversationHistory = async (req, res) => {
     // Convert buffer content to string for each message
     const messages = messagesFromDb.map(msg => ({
       ...msg,
-      content: msg.content.toString('utf-8')
+      content: msg.content.toString('utf-8'),
+      fileUrl: msg.fileUrl || null
     }));
 
     res.json(messages);
@@ -49,7 +50,8 @@ exports.getBroadcasts = async (req, res) => {
 
     const formattedBroadcasts = broadcasts.map(msg => ({
       ...msg,
-      content: msg.content.toString('utf-8')
+      content: msg.content.toString('utf-8'),
+      fileUrl: msg.fileUrl || null
     }));
 
     res.json(formattedBroadcasts);

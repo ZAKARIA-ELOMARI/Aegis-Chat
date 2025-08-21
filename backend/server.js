@@ -11,6 +11,8 @@ const Message = require('./models/message.model');
 const morgan = require('morgan');
 const logger = require('./config/logger');
 
+// Import ephemeral data cleanup service
+const { initializeCleanupScheduler } = require('./services/ephemeralData.service');
 
 // Import all models to register them with Mongoose at startup.
 require('./models/user.model');
@@ -22,6 +24,9 @@ require('./models/securityLog.model');
 
 // --- Database Connection ---
 connectDB();
+
+// Initialize ephemeral data cleanup scheduler
+initializeCleanupScheduler();
 
 // Setup periodic session cleanup (every 6 hours)
 const Session = require('./models/session.model');
@@ -120,9 +125,9 @@ io.on('connection', (socket) => {
   logger.info(`User ${socket.user.sub} joined room ${socket.user.sub}`);
 
   // Listen for a 'privateMessage' event
-  socket.on('privateMessage', async ({ senderId, recipientId, content }) => {
+  socket.on('privateMessage', async ({ senderId, recipientId, content, fileUrl }) => {
   try {
-    logger.info(`Received message from ${senderId} to ${recipientId}`);
+    logger.info(`Received message from ${senderId} to ${recipientId}`, { hasFile: !!fileUrl });
 
       // The 'content' is now expected to be an encrypted buffer from the client.
       // We remove the string validation. The client is responsible for encryption.
@@ -135,6 +140,7 @@ io.on('connection', (socket) => {
         sender: senderId,
         recipient: recipientId,
         content: Buffer.from(content, 'utf-8'), // Save the encrypted buffer directly
+        fileUrl: fileUrl || null, // Store file URL if present
         conversationId: conversationId,
         deliveredAt: new Date() // Mark as delivered when sent
       });
@@ -145,6 +151,7 @@ io.on('connection', (socket) => {
       // Forward the encrypted payload to the recipient's private room
       io.to(recipientId).emit('privateMessage', {
         content: content.toString('utf-8'), // Convert buffer back to string
+        fileUrl: fileUrl || null, // Include file URL if present
         senderId: socket.user.sub,
         messageId: savedMessage._id.toString()
       });
