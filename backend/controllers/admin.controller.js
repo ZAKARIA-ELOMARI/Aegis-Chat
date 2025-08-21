@@ -4,6 +4,7 @@ const logger = require('../config/logger');
 const mongoose = require('mongoose');
 const Message = require('../models/message.model');
 const { Role } = require('../models/role.model');
+const { SecurityLogger, SECURITY_EVENTS, RISK_LEVELS } = require('../utils/securityLogger.util');
 
 // @desc   Delete a user
 // @route  DELETE /api/admin/users/:userId
@@ -26,11 +27,18 @@ exports.deleteUser = async (req, res) => {
     // Delete the user
     await User.findByIdAndDelete(userId);
 
-    logger.info(`User deleted successfully by admin`, { 
-      deletedUserId: userId, 
-      deletedUsername: user.username,
-      adminId: req.user.sub 
-    });
+    // Enhanced security logging for user deletion
+    const currentUser = await User.findById(req.user.sub);
+    SecurityLogger.logAdminAction(
+      SECURITY_EVENTS.ADMIN_USER_DELETED,
+      req.user.sub,
+      currentUser?.username || 'Unknown',
+      userId,
+      user.username,
+      'deleted user account',
+      req,
+      { deletedUserEmail: user.email, deletedUserRole: user.role }
+    );
 
     res.status(200).json({
       message: `User '${user.username}' has been deleted successfully.`,
@@ -65,18 +73,25 @@ exports.updateUserStatus = async (req, res) => {
     }
 
     const currentUser = await User.findById(req.user.sub);
-    logger.warn(`Admin updated user status`, { 
-      targetUserId: userId,
-      targetUsername: user.username,
-      newStatus: status,
-      previousStatus: user.status,
-      adminId: req.user.sub,
-      adminUsername: currentUser?.username || 'Unknown',
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      timestamp: new Date().toISOString(),
-      type: 'SECURITY_EVENT'
-    });
+    
+    // Enhanced security logging for status changes
+    const action = status === 'deactivated' ? 'deactivated' : 'reactivated';
+    const eventType = status === 'deactivated' ? SECURITY_EVENTS.ACCOUNT_DEACTIVATED : SECURITY_EVENTS.ACCOUNT_REACTIVATED;
+    
+    SecurityLogger.logAdminAction(
+      eventType,
+      req.user.sub,
+      currentUser?.username || 'Unknown',
+      userId,
+      user.username,
+      `${action} user account`,
+      req,
+      { 
+        previousStatus: user.status,
+        newStatus: status,
+        targetUserEmail: user.email
+      }
+    );
 
     res.status(200).json({
       message: `User status updated successfully to '${status}'.`,
@@ -115,32 +130,22 @@ exports.resetUserPassword = async (req, res) => {
       await user.save();
 
       const currentUser = await User.findById(req.user.sub);
-      logger.warn(`Admin reset password for user`, { 
-        targetUserId: userId,
-        targetUsername: user.username,
-        adminId: req.user.sub,
-        adminUsername: currentUser?.username || 'Unknown',
-        ip: req.ip,
-        userAgent: req.get('User-Agent'),
-        timestamp: new Date().toISOString(),
-        type: 'SECURITY_EVENT',
-        event: 'PASSWORD_RESET_BY_ADMIN',
-        details: '2FA disabled and account set to pending status'
-      });
-
-      // Log separate security event for 2FA disable
-      logger.warn(`Admin disabled 2FA for user during password reset`, { 
-        targetUserId: userId,
-        targetUsername: user.username,
-        adminId: req.user.sub,
-        adminUsername: currentUser?.username || 'Unknown',
-        ip: req.ip,
-        userAgent: req.get('User-Agent'),
-        timestamp: new Date().toISOString(),
-        type: 'SECURITY_EVENT',
-        event: '2FA_DISABLED_BY_ADMIN',
-        reason: 'Password reset by administrator'
-      });
+      
+      // Enhanced security logging for password reset
+      SecurityLogger.logAdminAction(
+        SECURITY_EVENTS.ADMIN_PASSWORD_RESET,
+        req.user.sub,
+        currentUser?.username || 'Unknown',
+        userId,
+        user.username,
+        'reset password and disabled 2FA',
+        req,
+        {
+          targetUserEmail: user.email,
+          twoFactorWasEnabled: user.isTwoFactorEnabled,
+          statusChangedTo: 'pending'
+        }
+      );
 
       res.status(200).json({
         message: `Password for user '${user.username}' has been reset and their 2FA has been disabled. Please provide them with the new temporary password to complete the process.`,
@@ -202,6 +207,22 @@ exports.clearSystemLogs = async (req, res) => {
         const result = await logCollection.deleteMany({});
         
         const currentUser = await User.findById(req.user.sub);
+        
+        // Enhanced security logging for clearing system logs
+        SecurityLogger.logAdminAction(
+            SECURITY_EVENTS.ADMIN_LOGS_CLEARED,
+            req.user.sub,
+            currentUser?.username || 'Unknown',
+            null,
+            'System',
+            `cleared all system logs (${result.deletedCount} entries)`,
+            req,
+            { 
+                deletedCount: result.deletedCount,
+                action: 'CLEAR_SYSTEM_LOGS'
+            }
+        );
+
         logger.warn(`Admin cleared all system logs`, { 
             adminId: req.user.sub,
             adminUsername: currentUser?.username || 'Unknown',
@@ -244,6 +265,22 @@ exports.broadcastMessage = async (req, res) => {
       sender: adminUserId, // Also fixed here for consistency
       timestamp: broadcast.createdAt,
     });
+
+    // Enhanced security logging for broadcast messages
+    const currentUser = await User.findById(req.user.sub);
+    SecurityLogger.logAdminAction(
+      SECURITY_EVENTS.ADMIN_BROADCAST_SENT,
+      req.user.sub,
+      currentUser?.username || 'Unknown',
+      null,
+      'All Users',
+      `sent broadcast message to all users`,
+      req,
+      { 
+        messageLength: content.length,
+        messagePreview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+      }
+    );
 
     res.status(200).json({ message: 'Broadcast sent successfully.' });
   } catch (error) {
@@ -289,6 +326,24 @@ exports.createRole = async (req, res) => {
     await role.save();
 
     const currentUser = await User.findById(req.user.sub);
+    
+    // Enhanced security logging for role creation
+    SecurityLogger.logAdminAction(
+        SECURITY_EVENTS.ADMIN_ROLE_CREATED,
+        req.user.sub,
+        currentUser?.username || 'Unknown',
+        null,
+        'System',
+        `created new role '${role.name}' with permissions: [${(permissions || []).join(', ')}]`,
+        req,
+        { 
+            roleId: role._id,
+            roleName: role.name,
+            permissions: permissions || [],
+            action: 'CREATE_ROLE'
+        }
+    );
+
     logger.warn(`Admin created new role`, { 
       roleId: role._id, 
       roleName: role.name,
@@ -341,6 +396,24 @@ exports.updateRole = async (req, res) => {
     await role.save();
 
     const currentUser = await User.findById(req.user.sub);
+    
+    // Enhanced security logging for role update
+    SecurityLogger.logAdminAction(
+        SECURITY_EVENTS.ADMIN_ROLE_UPDATED,
+        req.user.sub,
+        currentUser?.username || 'Unknown',
+        null,
+        'System',
+        `updated role '${role.name}' with permissions: [${role.permissions.join(', ')}]`,
+        req,
+        { 
+            roleId: role._id,
+            roleName: role.name,
+            permissions: role.permissions,
+            action: 'UPDATE_ROLE'
+        }
+    );
+
     logger.warn(`Admin updated role`, { 
       roleId: role._id, 
       roleName: role.name,
@@ -388,6 +461,24 @@ exports.deleteRole = async (req, res) => {
     await Role.findByIdAndDelete(roleId);
 
     const currentUser = await User.findById(req.user.sub);
+    
+    // Enhanced security logging for role deletion
+    SecurityLogger.logAdminAction(
+        SECURITY_EVENTS.ADMIN_ROLE_DELETED,
+        req.user.sub,
+        currentUser?.username || 'Unknown',
+        null,
+        'System',
+        `deleted role '${role.name}' with permissions: [${role.permissions.join(', ')}]`,
+        req,
+        { 
+            roleId,
+            roleName: role.name,
+            permissions: role.permissions,
+            action: 'DELETE_ROLE'
+        }
+    );
+
     logger.warn(`Admin deleted role`, { 
       roleId, 
       roleName: role.name,
@@ -443,6 +534,25 @@ exports.updateUserRole = async (req, res) => {
     ).populate('role');
 
     const currentUser = await User.findById(req.user.sub);
+    
+    // Enhanced security logging for role changes
+    SecurityLogger.logAdminAction(
+      SECURITY_EVENTS.ADMIN_ROLE_CHANGED,
+      req.user.sub,
+      currentUser?.username || 'Unknown',
+      userId,
+      user.username,
+      `changed user role from '${userBeforeUpdate.role.name}' to '${role.name}'`,
+      req,
+      { 
+        targetUserEmail: user.email,
+        previousRoleId: userBeforeUpdate.role._id,
+        previousRoleName: userBeforeUpdate.role.name,
+        newRoleId: roleId,
+        newRoleName: role.name
+      }
+    );
+
     logger.warn(`Admin updated user role`, { 
       targetUserId: userId, 
       targetUsername: user.username,
@@ -478,5 +588,34 @@ exports.updateUserRole = async (req, res) => {
       adminId: req.user.sub 
     });
     res.status(500).json({ message: 'Server error while updating user role.' });
+  }
+};
+
+// Test endpoint to verify security logging
+exports.testSecurityLog = async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.user.sub);
+    
+    console.log('Test security log endpoint called by:', currentUser?.username);
+    
+    // Test logging a security event
+    SecurityLogger.logAdminAction(
+      SECURITY_EVENTS.ADMIN_ROLE_CREATED,
+      req.user.sub,
+      currentUser?.username || 'Unknown',
+      null,
+      'Test',
+      'performed test security logging',
+      req,
+      { 
+        testEvent: true,
+        timestamp: new Date().toISOString()
+      }
+    );
+
+    res.status(200).json({ message: 'Test security log created successfully' });
+  } catch (error) {
+    console.error('Error in test security log:', error);
+    res.status(500).json({ message: 'Error creating test security log' });
   }
 };

@@ -7,6 +7,7 @@ const PERMISSIONS = [
   'DEACTIVATE_USER',
   'RESET_USER_PASSWORD',
   'VIEW_SYSTEM_LOGS',
+  'VIEW_SECURITY_LOGS', // New permission for security alerts
   'BROADCAST_MESSAGE',
   'MANAGE_ROLES' // A permission for managing roles themselves
 ];

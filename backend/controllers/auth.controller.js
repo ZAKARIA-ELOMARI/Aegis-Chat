@@ -1,5 +1,6 @@
 const User = require('../models/user.model');
 const { Role } = require('../models/role.model');
+const Session = require('../models/session.model');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
@@ -9,6 +10,54 @@ const zxcvbn = require('zxcvbn');
 const TokenBlocklist = require('../models/tokenBlocklist.model');
 const { createAccessToken, createRefreshToken } = require('../utils/jwt.utils');
 const { sendEmail } = require('../utils/email.util');
+const { parseUserAgent } = require('../utils/session.utils');
+const { getLocationFromIP, getRealIP, formatLocation } = require('../utils/geolocation.util');
+const { SecurityLogger, SECURITY_EVENTS, RISK_LEVELS } = require('../utils/securityLogger.util');
+
+/**
+ * Helper function to create a new session
+ */
+async function createUserSession(user, req, refreshToken) {
+    try {
+        // Clean up old sessions periodically (every login)
+        await Session.cleanupOldSessions();
+        
+        const deviceInfo = parseUserAgent(req.get('User-Agent'));
+        const realIP = getRealIP(req);
+        const locationData = await getLocationFromIP(realIP);
+        
+        // Create new session
+        const session = new Session({
+            userId: user._id,
+            refreshToken,
+            ipAddress: realIP,
+            userAgent: req.get('User-Agent'),
+            deviceInfo,
+            location: locationData,
+            lastActivity: new Date()
+        });
+
+        await session.save();
+        
+        logger.info('New session created', {
+            userId: user._id,
+            sessionId: session._id,
+            deviceInfo: deviceInfo,
+            ip: realIP,
+            location: formatLocation(locationData),
+            type: 'SECURITY_EVENT'
+        });
+
+        return session;
+    } catch (error) {
+        logger.error('Error creating session', {
+            userId: user._id,
+            error: error.message,
+            type: 'ERROR'
+        });
+        throw error;
+    }
+}
 
 // Register a new user
 exports.register = async (req, res) => {
@@ -49,6 +98,26 @@ exports.register = async (req, res) => {
       status: 'pending'
     });
     if (user) {
+      // Enhanced security logging for user creation by admin
+      if (req.user && req.user.sub) {
+        // This is an admin creating a user
+        const currentUser = await User.findById(req.user.sub);
+        SecurityLogger.logAdminAction(
+          SECURITY_EVENTS.ADMIN_USER_CREATED,
+          req.user.sub,
+          currentUser?.username || 'Unknown',
+          user._id,
+          user.username,
+          `created new user account with email ${user.email} and role ${assignedRole.name}`,
+          req,
+          { 
+            createdUserEmail: user.email,
+            createdUserRole: assignedRole.name,
+            tempPassword: tempPassword
+          }
+        );
+      }
+
       res.status(201).json({
         message: 'User registered successfully.',
         user: { 
@@ -75,25 +144,40 @@ exports.login = async (req, res) => {
         const user = await User.findOne({ email });
 
         if (!user) {
-            logger.warn(`Failed login attempt - user not found`, { 
+            // Enhanced security logging for user not found
+            SecurityLogger.logAuth(
+                SECURITY_EVENTS.LOGIN_FAILED, 
+                null, 
                 email, 
-                ip: req.ip,
-                userAgent: req.get('User-Agent'),
-                timestamp: new Date().toISOString(),
-                type: 'SECURITY_EVENT'
-            });
+                false, 
+                req, 
+                { reason: 'User not found', attemptedEmail: email }
+            );
             return res.status(401).json({ message: 'Invalid credentials.' });
         }
 
         if (!(await bcrypt.compare(password, user.passwordHash))) {
-            logger.warn(`Failed login attempt - invalid password`, { 
+            // Enhanced security logging for invalid password
+            SecurityLogger.logAuth(
+                SECURITY_EVENTS.LOGIN_FAILED, 
+                user._id, 
                 email, 
-                userId: user._id,
-                ip: req.ip,
-                userAgent: req.get('User-Agent'),
-                timestamp: new Date().toISOString(),
-                type: 'SECURITY_EVENT'
-            });
+                false, 
+                req, 
+                { reason: 'Invalid password', userId: user._id }
+            );
+
+            // Check for multiple failed attempts (basic implementation)
+            const recentFailedAttempts = await this.checkRecentFailedAttempts(req.ip, email);
+            if (recentFailedAttempts >= 5) {
+                SecurityLogger.logSuspiciousActivity(
+                    SECURITY_EVENTS.MULTIPLE_FAILED_LOGINS,
+                    `Multiple failed login attempts detected for ${email} from IP ${req.ip}`,
+                    req,
+                    { attemptCount: recentFailedAttempts, email, suspiciousIP: req.ip }
+                );
+            }
+
             return res.status(401).json({ message: 'Invalid credentials.' });
         }
 
@@ -141,6 +225,9 @@ exports.login = async (req, res) => {
         const refreshToken = createRefreshToken(user);
         user.refreshToken = refreshToken;
 
+        // Create session for tracking
+        await createUserSession(user, req, refreshToken);
+
         // Check for new device login
         const currentIp = req.ip;
         const currentUserAgent = req.get('User-Agent');
@@ -149,17 +236,24 @@ exports.login = async (req, res) => {
                            user.lastLoginInfo.userAgent !== currentUserAgent;
 
         if (isNewDevice && user.lastLoginInfo) {
-            logger.warn(`Login from new device detected`, { 
-                userId: user._id,
-                email: user.email,
-                newIp: currentIp,
-                newUserAgent: currentUserAgent,
-                previousIp: user.lastLoginInfo.ip,
-                previousUserAgent: user.lastLoginInfo.userAgent,
-                previousLogin: user.lastLoginInfo.timestamp,
-                timestamp: new Date().toISOString(),
-                type: 'SECURITY_EVENT'
-            });
+            SecurityLogger.logSuspiciousActivity(
+                SECURITY_EVENTS.SUSPICIOUS_LOGIN_PATTERN,
+                `Login from new device detected for user ${user.email}`,
+                req,
+                {
+                    userId: user._id,
+                    email: user.email,
+                    newDevice: {
+                        ip: currentIp,
+                        userAgent: currentUserAgent
+                    },
+                    previousDevice: {
+                        ip: user.lastLoginInfo.ip,
+                        userAgent: user.lastLoginInfo.userAgent,
+                        lastLogin: user.lastLoginInfo.timestamp
+                    }
+                }
+            );
         }
 
         // Update last login info
@@ -171,15 +265,15 @@ exports.login = async (req, res) => {
 
         await user.save();
 
-        logger.info(`Successful login`, { 
-            userId: user._id,
-            email: user.email,
-            ip: req.ip,
-            userAgent: req.get('User-Agent'),
-            isNewDevice,
-            timestamp: new Date().toISOString(),
-            type: 'SECURITY_EVENT'
-        });
+        // Enhanced security logging for successful login
+        SecurityLogger.logAuth(
+            SECURITY_EVENTS.LOGIN_SUCCESS, 
+            user._id, 
+            user.email, 
+            true, 
+            req, 
+            { isNewDevice, deviceInfo: parseUserAgent(req.get('User-Agent')) }
+        );
 
         res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 });
         res.status(200).json({ message: 'Login successful.', accessToken });
@@ -216,6 +310,21 @@ exports.setInitialPassword = async (req, res) => {
     user.passwordHash = await bcrypt.hash(newPassword, salt);
     user.status = 'active';
     await user.save();
+
+    // Enhanced security logging for initial password setup
+    SecurityLogger.logSecurityEvent(
+      SECURITY_EVENTS.ACCOUNT_CREATED,
+      RISK_LEVELS.MEDIUM,
+      `User ${user.username} completed initial password setup and activated account`,
+      {
+        userId: user._id,
+        username: user.username,
+        email: user.email,
+        previousStatus: 'pending',
+        newStatus: 'active'
+      },
+      req
+    );
 
     logger.warn(`Initial password set successfully`, { 
       userId: userId,
@@ -256,6 +365,9 @@ exports.verifyLogin2FA = async (req, res) => {
             const accessToken = await createAccessToken(user);
             const refreshToken = createRefreshToken(user);
             user.refreshToken = refreshToken;
+
+            // Create session for tracking
+            await createUserSession(user, req, refreshToken);
 
             // Check for new device login in 2FA
             const currentIp = req.ip;
@@ -321,11 +433,29 @@ exports.logout = async (req, res) => {
     try {
         const token = req.headers.authorization.split(' ')[1];
         const decoded = jwt.decode(token);
+        const refreshToken = req.cookies.refreshToken;
+        
+        // Blocklist the access token
         const blocklistedToken = new TokenBlocklist({ jti: decoded.jti, expiresAt: new Date(decoded.exp * 1000) });
         await blocklistedToken.save();
 
-        // Find user for logging
+        // Find and deactivate the current session
+        if (refreshToken) {
+            await Session.updateOne(
+                { refreshToken, isActive: true },
+                { isActive: false, lastActivity: new Date() }
+            );
+        }
+
+        // Clear refresh token from user
         const user = await User.findById(decoded.sub);
+        if (user && user.refreshToken === refreshToken) {
+            user.refreshToken = null;
+            await user.save();
+        }
+
+        // Clear the refresh token cookie
+        res.clearCookie('refreshToken');
         
         logger.info(`User logout`, { 
             userId: decoded.sub,
@@ -497,4 +627,14 @@ exports.refreshToken = async (req, res) => {
     } catch (error) {
         return res.status(403).json({ message: 'Invalid refresh token.' });
     }
+};
+
+/**
+ * Helper method to check recent failed login attempts
+ * This is a simplified implementation - in production you might want to use Redis
+ */
+exports.checkRecentFailedAttempts = async function(ip, email) {
+    // This would typically be implemented with Redis or a dedicated table
+    // For now, we'll return 0 but this shows where the logic would go
+    return 0;
 };

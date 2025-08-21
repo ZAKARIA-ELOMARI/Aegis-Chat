@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import useAuthStore from '../store/authStore'; // Import the auth store
 import apiClient from '../api/apiClient';
+import SessionsPanel from '../components/SessionsPanel';
 
 const SecurityPage: React.FC = () => {
   // Get the 2FA status from our global store
@@ -47,7 +48,9 @@ const SecurityPage: React.FC = () => {
       setQrCode(null);
       // Manually update the state in the store after successful verification
       if (accessToken && userId) {
-        login(accessToken, userId, true);
+        // Keep the current role, just update 2FA status
+        const currentRole = useAuthStore.getState().role;
+        login(accessToken, userId, true, currentRole || '');
       }
     } catch (err: unknown) {
       const errorMessage =
@@ -60,8 +63,9 @@ const SecurityPage: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="sm">
-      <Paper sx={{ p: 3, mt: 3 }}>
+    <Container maxWidth="md">
+      {/* Two-Factor Authentication Section */}
+      <Paper sx={{ p: 3, mt: 3, mb: 3 }}>
         <Typography variant="h5" gutterBottom>
           Two-Factor Authentication (2FA)
         </Typography>
@@ -101,6 +105,11 @@ const SecurityPage: React.FC = () => {
             )}
           </>
         )}
+      </Paper>
+
+      {/* Session Management Section */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <SessionsPanel />
       </Paper>
     </Container>
   );

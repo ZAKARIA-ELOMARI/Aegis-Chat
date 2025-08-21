@@ -1,4 +1,3 @@
-// src/routes/AppRouter.tsx
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from '../pages/LoginPage';
@@ -11,6 +10,7 @@ import AssistantPage from '../pages/AssistantPage';
 import SecurityPage from '../pages/SecurityPage';
 import AdminUsersPage from '../pages/AdminUsersPage';
 import AdminLogsPage from '../pages/AdminLogsPage';
+import AdminSecurityAlertsPage from '../pages/AdminSecurityAlertsPage';
 import AdminBroadcastPage from '../pages/AdminBroadcastPage';
 import AdminRolesPage from '../pages/AdminRolesPage';
 import SetInitialPasswordPage from '../pages/SetInitialPasswordPage';
@@ -39,6 +39,7 @@ const AppRouter: React.FC = () => {
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/admin/roles" element={<AdminRolesPage />} />
             <Route path="/admin/logs" element={<AdminLogsPage />} />
+            <Route path="/admin/security" element={<AdminSecurityAlertsPage />} />
             <Route path="/admin/broadcast" element={<AdminBroadcastPage />} />
           </Route>
         </Route>

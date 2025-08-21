@@ -2,6 +2,7 @@ const User = require('../models/user.model');
 const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
 const logger = require('../config/logger');
+const { SecurityLogger, SECURITY_EVENTS, RISK_LEVELS } = require('../utils/securityLogger.util');
 
 // @desc   Generate a new 2FA secret for the logged-in user
 // @route  POST /api/2fa/generate
@@ -71,27 +72,34 @@ exports.verifyAndEnable = async (req, res) => {
             user.isTwoFactorEnabled = true;
             await user.save();
             
-            logger.info(`Two-factor authentication enabled`, { 
-                userId: req.user.sub,
-                username: user.username,
-                email: user.email,
-                ip: req.ip,
-                userAgent: req.get('User-Agent'),
-                timestamp: new Date().toISOString(),
-                type: 'SECURITY_EVENT'
-            });
+            // Enhanced security logging for 2FA enablement
+            SecurityLogger.logSecurityEvent(
+                SECURITY_EVENTS.TWO_FA_ENABLED,
+                RISK_LEVELS.MEDIUM,
+                `Two-factor authentication enabled for user ${user.email}`,
+                {
+                    userId: user._id,
+                    username: user.username,
+                    email: user.email
+                },
+                req
+            );
             
             res.status(200).json({ message: "Two-factor authentication has been enabled successfully." });
         } else {
-            logger.warn(`Failed 2FA verification attempt`, { 
-                userId: req.user.sub,
-                username: user.username,
-                email: user.email,
-                ip: req.ip,
-                userAgent: req.get('User-Agent'),
-                timestamp: new Date().toISOString(),
-                type: 'SECURITY_EVENT'
-            });
+            // Enhanced security logging for failed 2FA verification
+            SecurityLogger.logSecurityEvent(
+                SECURITY_EVENTS.TWO_FA_FAILED,
+                RISK_LEVELS.MEDIUM,
+                `Failed 2FA verification attempt for user ${user.email}`,
+                {
+                    userId: user._id,
+                    username: user.username,
+                    email: user.email,
+                    reason: 'Invalid token provided'
+                },
+                req
+            );
             res.status(400).json({ message: "Invalid 2FA token." });
         }
     } catch (error) {

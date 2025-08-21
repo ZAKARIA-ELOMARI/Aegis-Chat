@@ -11,7 +11,8 @@ const {
   createRole,
   updateRole,
   deleteRole,
-  updateUserRole
+  updateUserRole,
+  testSecurityLog
 } = require('../controllers/admin.controller');
 const auth = require('../middleware/auth.middleware'); // Import the auth middleware
 const { checkPermission } = require('../middleware/permission.middleware');
@@ -61,5 +62,8 @@ router.put('/roles/:roleId', checkPermission('MANAGE_ROLES'), updateRole);
 
 // Route to delete a role
 router.delete('/roles/:roleId', checkPermission('MANAGE_ROLES'), deleteRole);
+
+// Test route for security logging
+router.post('/test-security-log', checkPermission('MANAGE_ROLES'), testSecurityLog);
 
 module.exports = router;

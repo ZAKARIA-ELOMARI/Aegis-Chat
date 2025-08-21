@@ -273,13 +273,22 @@ const MainLayout: React.FC = () => {
                     <ListItemText primary="Role Management" />
                   </ListItemButton>
                 </ListItem>
-                {/* NEW LINK FOR LOGS */}
+                {/* LINK FOR SYSTEM LOGS */}
                 <ListItem key="admin-logs" disablePadding>
                   <ListItemButton onClick={() => navigate('/admin/logs')}>
                     <ListItemIcon>
                       <ListAltIcon />
                     </ListItemIcon>
                     <ListItemText primary="System Logs" />
+                  </ListItemButton>
+                </ListItem>
+                {/* LINK FOR SECURITY ALERTS */}
+                <ListItem key="admin-security" disablePadding>
+                  <ListItemButton onClick={() => navigate('/admin/security')}>
+                    <ListItemIcon>
+                      <SecurityIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Security Alerts" />
                   </ListItemButton>
                 </ListItem>
                 {/* NEW LINK FOR BROADCAST */}
@@ -308,7 +317,7 @@ const MainLayout: React.FC = () => {
                 <ListItemIcon>
                   <SecurityIcon />
                 </ListItemIcon>
-                <ListItemText primary="Security" />
+                <ListItemText primary="Account Security" />
               </ListItemButton>
             </ListItem>
             <Divider /> {/* SEPARATOR */}

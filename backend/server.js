@@ -17,12 +17,35 @@ require('./models/user.model');
 require('./models/role.model');
 require('./models/message.model');
 require('./models/tokenBlocklist.model');
+require('./models/session.model');
+require('./models/securityLog.model');
+
 // --- Database Connection ---
 connectDB();
+
+// Setup periodic session cleanup (every 6 hours)
+const Session = require('./models/session.model');
+setInterval(async () => {
+  try {
+    const result = await Session.cleanupOldSessions();
+    if (result.deletedCount > 0) {
+      logger.info(`Cleaned up ${result.deletedCount} old sessions`, {
+        type: 'MAINTENANCE',
+        deletedCount: result.deletedCount
+      });
+    }
+  } catch (error) {
+    logger.error('Error during session cleanup', {
+      error: error.message,
+      type: 'MAINTENANCE_ERROR'
+    });
+  }
+}, 6 * 60 * 60 * 1000); // 6 hours in milliseconds
 
 const app = express();
 const cookieParser = require('cookie-parser');
 const csrf = require('csurf');
+const { SecurityLogger, SECURITY_EVENTS, RISK_LEVELS } = require('./utils/securityLogger.util');
 
 app.use(cookieParser());
 
@@ -38,6 +61,9 @@ const io = new Server(server, {
     methods: ["GET", "POST"]
   }
 });
+
+// Make io instance globally available for security logger
+global.io = io;
 
 let onlineUsers = {};
 
@@ -66,6 +92,20 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   // This code now only runs for AUTHENTICATED users
   logger.info(`Authenticated user connected: ${socket.user.sub} with socket ID: ${socket.id}`);
+  
+  // Log security event for user connection
+  SecurityLogger.logSecurityEvent(
+    SECURITY_EVENTS.SESSION_CREATED,
+    RISK_LEVELS.LOW,
+    `User connected to chat system`,
+    {
+      userId: socket.user.sub,
+      username: socket.user.username,
+      socketId: socket.id,
+      sessionType: 'WEBSOCKET'
+    }
+  );
+  
   // --- Start of new logic ---
   // Add user to our tracking object
   logger.info(`User ${socket.user.sub} connected. Adding to online users.`);
@@ -121,6 +161,19 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     logger.info(`User ${socket.user.sub} disconnected.`);
     
+    // Log security event for user disconnection
+    SecurityLogger.logSecurityEvent(
+      SECURITY_EVENTS.SESSION_TERMINATED,
+      RISK_LEVELS.LOW,
+      `User disconnected from chat system`,
+      {
+        userId: socket.user.sub,
+        username: socket.user.username,
+        socketId: socket.id,
+        sessionType: 'WEBSOCKET'
+      }
+    );
+    
     // --- Start of new logic ---
     // Remove user from our tracking object
     logger.info(`User ${socket.user.sub} disconnected. Removing from online users.`);
@@ -164,6 +217,10 @@ const attachIo = (req, res, next) => {
 app.use(attachIo);
 app.use(morgan('combined', { stream: logger.stream }));
 
+// Session activity update middleware (for authenticated routes only)
+const updateSessionActivity = require('./middleware/sessionActivity.middleware');
+app.use(updateSessionActivity);
+
 // An endpoint for the frontend to get the CSRF token
 app.get('/api/csrf-token', (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
@@ -176,7 +233,9 @@ app.use('/api/messages', require('./routes/message.routes.js'));
 app.use('/api/files', require('./routes/file.routes.js'));
 app.use('/api/ai', require('./routes/ai.routes.js'));
 app.use('/api/admin', require('./routes/admin.routes.js')); 
+app.use('/api/admin', require('./routes/securityLogs.routes.js')); // Security logs under admin
 app.use('/api/2fa', require('./routes/twoFactor.routes.js'));
+app.use('/api/sessions', require('./routes/session.routes.js'));
 
 const PORT = process.env.PORT || 8000;
 
