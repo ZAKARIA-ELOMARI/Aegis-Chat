@@ -1,10 +1,30 @@
 // src/components/BroadcastPanel.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Drawer, Box, Typography, List, ListItem, ListItemText, Divider } from '@mui/material';
 import useBroadcastStore from '../store/broadcastStore';
+import apiClient from '../api/apiClient';
 
 const BroadcastPanel: React.FC = () => {
-  const { messages, isPanelOpen, togglePanel } = useBroadcastStore();
+  const { messages, isPanelOpen, togglePanel, markAllAsRead } = useBroadcastStore();
+
+  // Mark broadcasts as read when panel is opened
+  useEffect(() => {
+    if (isPanelOpen && messages.length > 0) {
+      const markBroadcastsAsRead = async () => {
+        try {
+          // Mark all unread broadcasts as read
+          for (const msg of messages) {
+            await apiClient.put(`/messages/${msg._id}/read`);
+          }
+          markAllAsRead();
+        } catch (error) {
+          console.error('Failed to mark broadcasts as read:', error);
+        }
+      };
+      
+      markBroadcastsAsRead();
+    }
+  }, [isPanelOpen, messages, markAllAsRead]);
 
   return (
     <Drawer anchor="right" open={isPanelOpen} onClose={togglePanel}>

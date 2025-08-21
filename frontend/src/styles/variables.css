@@ -1,0 +1,106 @@
+/* Color Palette Variables */
+:root {
+  /* Primary Color Palette */
+  --color-seashell: #f1f0f0;
+  --color-mondo: #42332b;
+  --color-potters-clay: #8e5239;
+  --color-tussock: #c68954;
+  
+  /* Color Variations */
+  --color-seashell-light: #f8f7f7;
+  --color-seashell-dark: #e9e8e8;
+  --color-mondo-light: #554237;
+  --color-mondo-dark: #332822;
+  --color-potters-clay-light: #a66347;
+  --color-potters-clay-dark: #7a472d;
+  --color-tussock-light: #d49968;
+  --color-tussock-dark: #b87940;
+  
+  /* Semantic Colors */
+  --color-success: #4caf50;
+  --color-warning: var(--color-tussock);
+  --color-error: #f44336;
+  --color-info: #2196f3;
+  
+  /* Text Colors */
+  --text-primary: var(--color-mondo);
+  --text-secondary: var(--color-potters-clay);
+  --text-tertiary: #666666;
+  --text-light: var(--color-seashell);
+  
+  /* Background Colors */
+  --bg-primary: var(--color-seashell);
+  --bg-secondary: var(--color-seashell-light);
+  --bg-paper: #ffffff;
+  --bg-overlay: rgba(66, 51, 43, 0.1);
+  
+  /* Shadow Variables */
+  --shadow-xs: 0 1px 2px rgba(66, 51, 43, 0.05);
+  --shadow-sm: 0 1px 3px rgba(66, 51, 43, 0.1), 0 1px 2px rgba(66, 51, 43, 0.06);
+  --shadow-md: 0 4px 6px rgba(66, 51, 43, 0.07), 0 2px 4px rgba(66, 51, 43, 0.06);
+  --shadow-lg: 0 10px 15px rgba(66, 51, 43, 0.1), 0 4px 6px rgba(66, 51, 43, 0.05);
+  --shadow-xl: 0 20px 25px rgba(66, 51, 43, 0.1), 0 10px 10px rgba(66, 51, 43, 0.04);
+  --shadow-2xl: 0 25px 50px rgba(66, 51, 43, 0.15);
+  --shadow-inner: inset 0 2px 4px rgba(66, 51, 43, 0.06);
+  
+  /* Glass morphism */
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --glass-shadow: 0 8px 32px rgba(66, 51, 43, 0.1);
+  
+  /* Border Radius */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 50%;
+  
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  
+  /* Typography */
+  --font-family-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-display: 'Inter', sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+  
+  /* Transitions */
+  --transition-fast: 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-base: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-bounce: 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  
+  /* Modern spacing scale */
+  --space-0: 0px;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-7: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  
+  /* Z-Index */
+  --z-index-dropdown: 1000;
+  --z-index-sticky: 1020;
+  --z-index-fixed: 1030;
+  --z-index-modal-backdrop: 1040;
+  --z-index-modal: 1050;
+  --z-index-popover: 1060;
+  --z-index-tooltip: 1070;
+}

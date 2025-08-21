@@ -23,7 +23,27 @@ const messageSchema = new mongoose.Schema({
   isBroadcast: {
     type: Boolean,
     default: false,
-  }
+  },
+  // Read receipt tracking
+  deliveredAt: {
+    type: Date,
+    default: null,
+  },
+  readAt: {
+    type: Date,
+    default: null,
+  },
+  // For broadcast messages, track who has read them
+  readBy: [{
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    readAt: {
+      type: Date,
+      default: Date.now,
+    }
+  }],
 }, {
   timestamps: true // Automatically adds createdAt and updatedAt fields
 });

@@ -1,8 +1,10 @@
 // src/App.tsx
 import React, { useEffect } from 'react';
+import { ThemeProvider, CssBaseline } from '@mui/material';
 import AppRouter from './routes/AppRouter';
 import useAuthStore from './store/authStore';
 import { fetchCsrfToken } from './api/apiClient';
+import theme from './theme/theme';
 
 const App: React.FC = () => {
   const setCsrfToken = useAuthStore((state) => state.setCsrfToken);
@@ -21,7 +23,12 @@ const App: React.FC = () => {
     initializeCsrfToken();
   }, [setCsrfToken]);
 
-  return <AppRouter />;
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <AppRouter />
+    </ThemeProvider>
+  );
 };
 
 export default App;

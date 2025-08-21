@@ -7,4 +7,11 @@ export interface Message {
   // For E2EE, this would be handled as a buffer/typed array.
   content: string; 
   createdAt: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  readBy?: Array<{
+    userId: string;
+    readAt: string;
+  }>;
+  isBroadcast?: boolean;
 }

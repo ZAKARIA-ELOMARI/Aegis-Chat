@@ -1,5 +1,5 @@
 // src/layouts/MainLayout.tsx
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import {
   AppBar,
@@ -15,67 +15,42 @@ import {
   Typography,
   Avatar,
   Button,
-  Divider,
-  Badge,
   IconButton,
-  styled,
+  Badge,
 } from '@mui/material';
-import PersonIcon from '@mui/icons-material/Person';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import SecurityIcon from '@mui/icons-material/Security';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import GroupIcon from '@mui/icons-material/Group';
-import ListAltIcon from '@mui/icons-material/ListAlt';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import apiClient from '../api/apiClient';
 import useUserStore from '../store/userStore';
 import useAuthStore from '../store/authStore';
 import useBroadcastStore from '../store/broadcastStore';
 import BroadcastPanel from '../components/BroadcastPanel';
+import AdminDropdown from '../components/AdminDropdown';
 import type { User } from '../types/user';
 import { getSocket } from '../api/socketClient';
 import type { Message } from '../types/message';
 import { getKeys, decryptMessage } from '../utils/crypto'; // ADD THIS LINE
 
-
-// NEW: Create a styled component for our online indicator dot
-const StyledBadge = styled(Badge)(({ theme }) => ({
-  '& .MuiBadge-badge': {
-    backgroundColor: '#44b700',
-    color: '#44b700',
-    boxShadow: `0 0 0 2px ${theme.palette.background.paper}`,
-    '&::after': {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
-      borderRadius: '50%',
-      animation: 'ripple 1.2s infinite ease-in-out',
-      border: '1px solid currentColor',
-      content: '""',
-    },
-  },
-  '@keyframes ripple': {
-    '0%': {
-      transform: 'scale(.8)',
-      opacity: 1,
-    },
-    '100%': {
-      transform: 'scale(2.4)',
-      opacity: 0,
-    },
-  },
-}));
-
-const drawerWidth = 240;
-
 const MainLayout: React.FC = () => {
-  const { users, setUsers, setSelectedUser, setOnlineUsers, setTypingUser } = useUserStore();
+  const { users, setUsers, setSelectedUser, setOnlineUsers, setTypingUser, unreadCounts, setUnreadCount } = useUserStore();
   const { logout, userId: currentUserId, accessToken, role } = useAuthStore(); // Add role
-  const { setMessages: setBroadcasts, addMessage: addBroadcast } = useBroadcastStore();
+  const { setMessages: setBroadcasts, addMessage: addBroadcast, unreadCount: broadcastUnreadCount, setUnreadCount: setBroadcastUnreadCount } = useBroadcastStore();
   const toggleBroadcastPanel = useBroadcastStore((state) => state.togglePanel);
   const navigate = useNavigate();
+  
+  // State for admin dropdown
+  const [adminAnchorEl, setAdminAnchorEl] = useState<null | HTMLElement>(null);
+  const adminDropdownOpen = Boolean(adminAnchorEl);
+
+  const handleAdminClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAdminAnchorEl(event.currentTarget);
+  };
+
+  const handleAdminClose = () => {
+    setAdminAnchorEl(null);
+  };
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -88,6 +63,33 @@ const MainLayout: React.FC = () => {
     };
     fetchUsers();
   }, [setUsers]);
+
+  useEffect(() => {
+    // Fetch unread counts
+    const fetchUnreadCounts = async () => {
+      try {
+        const [unreadResponse, broadcastResponse] = await Promise.all([
+          apiClient.get('/messages/unread-counts'),
+          apiClient.get('/messages/unread-broadcasts')
+        ]);
+        
+        // Set unread counts for individual users
+        const counts = unreadResponse.data;
+        Object.entries(counts).forEach(([userId, count]) => {
+          setUnreadCount(userId, count as number);
+        });
+
+        // Set unread broadcast count
+        setBroadcastUnreadCount(broadcastResponse.data.count);
+      } catch (error) {
+        console.error('Failed to fetch unread counts:', error);
+      }
+    };
+
+    if (accessToken) {
+      fetchUnreadCounts();
+    }
+  }, [accessToken, setUnreadCount, setBroadcastUnreadCount]);
 
   useEffect(() => {
     // Fetch historical broadcasts on load
@@ -109,7 +111,7 @@ const MainLayout: React.FC = () => {
 
     const handlePrivateMessage = (newMessage: { content: string, senderId: string }) => {
         // Get the LATEST state directly from the stores inside the handler
-        const { users, selectedUser, addMessage } = useUserStore.getState();
+        const { users, selectedUser, addMessage, incrementUnreadCount } = useUserStore.getState();
         const { userId: currentUserId } = useAuthStore.getState();
 
         // Only process the message if the chat with the sender is currently open
@@ -158,6 +160,8 @@ const MainLayout: React.FC = () => {
         } else {
             // This part handles notifications for inactive chats
             console.log(`Received message from ${newMessage.senderId}, but their chat is not active.`);
+            // Increment unread count for this user
+            incrementUnreadCount(newMessage.senderId);
         }
     };
 
@@ -189,12 +193,25 @@ const MainLayout: React.FC = () => {
     socket.on('privateMessage', handlePrivateMessage);
     socket.on('broadcastMessage', handleBroadcastMessage);
 
+    // Listen for read receipt events
+    socket.on('messageDelivered', ({ messageId, deliveredAt }) => {
+      console.log(`Message ${messageId} delivered at ${deliveredAt}`);
+      // Update message status in the store if needed
+    });
+
+    socket.on('messageRead', ({ messageId, readAt }) => {
+      console.log(`Message ${messageId} read at ${readAt}`);
+      // Update message status in the store if needed
+    });
+
     // Cleanup function to remove the listener when the component unmounts
     return () => {
         socket.off('privateMessage', handlePrivateMessage);
         socket.off('updateOnlineUsers'); // NEW: Cleanup listener
         socket.off('typing'); // NEW: Cleanup listener
         socket.off('broadcastMessage', handleBroadcastMessage); // Cleanup the new listener
+        socket.off('messageDelivered');
+        socket.off('messageRead');
         socket.off('connect');
         socket.off('disconnect');
     };
@@ -223,138 +240,264 @@ const MainLayout: React.FC = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex' }}>
+    <Box className="main-layout">
       <CssBaseline />
       <AppBar
         position="fixed"
+        className="app-bar"
         sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
       >
         <Toolbar>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            Aegis Chat
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }} className="app-bar-title">
+            🛡️ Aegis Chat
           </Typography>
-          {/* Button to open the broadcast panel */}
-          <IconButton color="inherit" onClick={toggleBroadcastPanel}>
-            <CampaignIcon />
-          </IconButton>
-          <Button color="inherit" onClick={handleLogout}>Logout</Button>
+          
+          {/* Broadcast Panel Toggle Button */}
+          <Badge 
+            badgeContent={broadcastUnreadCount} 
+            color="error" 
+            sx={{
+              '& .MuiBadge-badge': {
+                backgroundColor: '#ff6b35',
+                color: 'white',
+                fontWeight: 'bold',
+                fontSize: '0.75rem',
+                animation: broadcastUnreadCount > 0 ? 'bounce 1s infinite alternate' : 'none',
+              }
+            }}
+          >
+            <IconButton 
+              color="inherit" 
+              onClick={toggleBroadcastPanel}
+              sx={{ 
+                mr: 2,
+                background: 'rgba(66, 51, 43, 0.08)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '12px',
+                padding: '10px',
+                color: 'var(--color-potters-clay)',
+                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                '&:hover': {
+                  background: 'rgba(66, 51, 43, 0.12)',
+                  transform: 'translateY(-1px)',
+                  boxShadow: 'var(--shadow-md)'
+                }
+              }}
+            >
+              <CampaignIcon />
+            </IconButton>
+          </Badge>
+          
+          <Button 
+            color="inherit" 
+            onClick={handleLogout}
+            sx={{ 
+              background: 'rgba(66, 51, 43, 0.08)',
+              backdropFilter: 'blur(10px)',
+              borderRadius: '12px',
+              px: 3,
+              py: 1.25,
+              color: 'var(--color-potters-clay)',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              textTransform: 'none',
+              letterSpacing: '0.02em',
+              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+              '&:hover': {
+                background: 'rgba(66, 51, 43, 0.12)',
+                transform: 'translateY(-1px)',
+                boxShadow: 'var(--shadow-md)'
+              }
+            }}
+          >
+            Logout
+          </Button>
         </Toolbar>
       </AppBar>
+      
       {/* Add the broadcast panel component */}
       <BroadcastPanel />
+      
+      {/* Add the admin dropdown */}
+      {role === 'Super Admin' && (
+        <AdminDropdown
+          anchorEl={adminAnchorEl}
+          open={adminDropdownOpen}
+          onClose={handleAdminClose}
+        />
+      )}
+      
       <Drawer
         variant="permanent"
-        sx={{
-          width: drawerWidth,
-          flexShrink: 0,
-          [`& .MuiDrawer-paper`]: { width: drawerWidth, boxSizing: 'border-box' },
+        className="drawer"
+        classes={{
+          paper: 'drawer-paper',
         }}
       >
         <Toolbar />
-        <Box sx={{ overflow: 'auto' }}>
-          <List>
-            {/* NEW: Conditionally render Admin Panel Link */}
-            {role === 'Super Admin' && (
-              <>
-                <ListItem key="admin-users" disablePadding>
-                  <ListItemButton onClick={() => navigate('/admin/users')}>
-                    <ListItemIcon>
-                      <AdminPanelSettingsIcon />
-                    </ListItemIcon>
-                    <ListItemText primary="User Management" />
-                  </ListItemButton>
-                </ListItem>
-                {/* NEW LINK FOR ROLE MANAGEMENT */}
-                <ListItem key="admin-roles" disablePadding>
-                  <ListItemButton onClick={() => navigate('/admin/roles')}>
-                    <ListItemIcon>
-                      <GroupIcon />
-                    </ListItemIcon>
-                    <ListItemText primary="Role Management" />
-                  </ListItemButton>
-                </ListItem>
-                {/* LINK FOR SYSTEM LOGS */}
-                <ListItem key="admin-logs" disablePadding>
-                  <ListItemButton onClick={() => navigate('/admin/logs')}>
-                    <ListItemIcon>
-                      <ListAltIcon />
-                    </ListItemIcon>
-                    <ListItemText primary="System Logs" />
-                  </ListItemButton>
-                </ListItem>
-                {/* LINK FOR SECURITY ALERTS */}
-                <ListItem key="admin-security" disablePadding>
-                  <ListItemButton onClick={() => navigate('/admin/security')}>
-                    <ListItemIcon>
-                      <SecurityIcon />
-                    </ListItemIcon>
-                    <ListItemText primary="Security Alerts" />
-                  </ListItemButton>
-                </ListItem>
-                {/* NEW LINK FOR BROADCAST */}
-                <ListItem key="admin-broadcast" disablePadding>
-                  <ListItemButton onClick={() => navigate('/admin/broadcast')}>
-                    <ListItemIcon>
-                      <CampaignIcon />
-                    </ListItemIcon>
-                    <ListItemText primary="Broadcast Message" />
-                  </ListItemButton>
-                </ListItem>
-              </>
-            )}
-            {/* NEW AI ASSISTANT LINK */}
-            <ListItem key="ai-assistant" disablePadding>
-              <ListItemButton onClick={() => navigate('/assistant')}>
-                <ListItemIcon>
-                  <PsychologyIcon />
-                </ListItemIcon>
-                <ListItemText primary="AI Assistant" />
-              </ListItemButton>
-            </ListItem>
-            {/* NEW SECURITY PAGE LINK */}
-            <ListItem key="security" disablePadding>
-              <ListItemButton onClick={() => navigate('/security')}>
-                <ListItemIcon>
-                  <SecurityIcon />
-                </ListItemIcon>
-                <ListItemText primary="Account Security" />
-              </ListItemButton>
-            </ListItem>
-            <Divider /> {/* SEPARATOR */}
-            <Typography variant="subtitle1" sx={{ pl: 2, pt: 1, pb: 1 }}>Employees</Typography>
-            {/* Use the filteredUsers array here */}
-            {filteredUsers.map((user) => (
-              <ListItem key={user._id} disablePadding>
-                {/* Add onClick handler to the button */}
-                <ListItemButton onClick={() => handleSelectUser(user)}>
-                  <ListItemIcon>
-                    {/* NEW: Conditionally render the online badge */}
-                    {onlineUsers.includes(user._id) ? (
-                      <StyledBadge
-                        overlap="circular"
-                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                        variant="dot"
-                      >
-                        <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}>
-                          <PersonIcon fontSize="small" />
-                        </Avatar>
-                      </StyledBadge>
-                    ) : (
-                      <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}>
-                        <PersonIcon fontSize="small" />
-                      </Avatar>
-                    )}
+        <Box className="drawer-content">
+          {/* User Profile Section */}
+          <Box className="user-profile-section">
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Avatar className="user-avatar">
+                {currentUserId?.charAt(0).toUpperCase()}
+              </Avatar>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Welcome back!
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {role}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* Navigation Section */}
+          <Box sx={{ flex: '0 0 auto' }}>
+            <List className="navigation-list">
+              {/* Home/Dashboard Link */}
+              <ListItem className="nav-list-item" disablePadding>
+                <ListItemButton 
+                  onClick={() => navigate('/dashboard')}
+                  className="nav-list-button"
+                >
+                  <ListItemIcon className="nav-list-icon">
+                    🏠
                   </ListItemIcon>
-                  <ListItemText primary={user.username} />
+                  <ListItemText 
+                    primary="Dashboard" 
+                    classes={{ primary: 'nav-list-text' }}
+                  />
                 </ListItemButton>
               </ListItem>
-            ))}
-          </List>
+
+              <ListItem className="nav-list-item" disablePadding>
+                <ListItemButton 
+                  onClick={() => navigate('/assistant')}
+                  className="nav-list-button"
+                >
+                  <ListItemIcon className="nav-list-icon">
+                    <PsychologyIcon />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="AI Assistant" 
+                    classes={{ primary: 'nav-list-text' }}
+                  />
+                </ListItemButton>
+              </ListItem>
+              
+              <ListItem className="nav-list-item" disablePadding>
+                <ListItemButton 
+                  onClick={() => navigate('/security')}
+                  className="nav-list-button"
+                >
+                  <ListItemIcon className="nav-list-icon">
+                    <SecurityIcon />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Security" 
+                    classes={{ primary: 'nav-list-text' }}
+                  />
+                </ListItemButton>
+              </ListItem>
+
+              {/* Admin Panel Links - Only for Super Admin - Compact version */}
+              {role === 'Super Admin' && (
+                <>
+                  <ListItem className="nav-list-item" disablePadding>
+                    <ListItemButton 
+                      onClick={handleAdminClick}
+                      className="nav-list-button"
+                    >
+                      <ListItemIcon className="nav-list-icon">
+                        <AdminPanelSettingsIcon />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary="Admin Panel" 
+                        classes={{ primary: 'nav-list-text' }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                </>
+              )}
+            </List>
+          </Box>
+
+          {/* Users Section - Takes remaining space */}
+          <Box className="users-section" sx={{ flex: '1 1 auto', minHeight: 0 }}>
+            <Box sx={{ 
+              borderTop: '1px solid var(--color-seashell-dark)', 
+              pt: 2,
+              mx: 2
+            }}>
+              <Typography className="users-section-title">
+                💬 Team Members ({filteredUsers.length} online)
+              </Typography>
+            </Box>
+            <Box className="users-list-container" sx={{ overflowY: 'auto', height: '100%' }}>
+              {/* Use the filteredUsers array here */}
+              {filteredUsers.map((user) => (
+                <ListItem key={user._id} className="user-list-item" disablePadding>
+                  <ListItemButton 
+                    onClick={() => handleSelectUser(user)}
+                    className="user-list-button"
+                  >
+                    <ListItemIcon>
+                      <Badge 
+                        badgeContent={unreadCounts[user._id] || 0} 
+                        color="error"
+                        sx={{
+                          '& .MuiBadge-badge': {
+                            backgroundColor: '#ff4444',
+                            color: 'white',
+                            fontWeight: 'bold',
+                            fontSize: '0.7rem',
+                            minWidth: '16px',
+                            height: '16px',
+                            animation: (unreadCounts[user._id] || 0) > 0 ? 'pulse 2s infinite' : 'none',
+                          }
+                        }}
+                      >
+                        {/* NEW: Conditionally render the online badge */}
+                        {onlineUsers.includes(user._id) ? (
+                          <Box className="online-badge">
+                            <Avatar className="user-avatar-small">
+                              {user.username.charAt(0).toUpperCase()}
+                            </Avatar>
+                          </Box>
+                        ) : (
+                          <Avatar className="user-avatar-small">
+                            {user.username.charAt(0).toUpperCase()}
+                          </Avatar>
+                        )}
+                      </Badge>
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary={user.username} 
+                      classes={{ primary: 'user-list-text' }}
+                      secondary={onlineUsers.includes(user._id) ? "Online" : "Offline"}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+              {filteredUsers.length === 0 && (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    No team members available
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          </Box>
         </Box>
       </Drawer>
-      <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
+      
+      <Box component="main" className="main-content">
         <Toolbar />
-        <Outlet /> {/* Child routes (like the chat window) will render here */}
+        <Box className="content-container">
+          <Outlet /> {/* Child routes (like the chat window) will render here */}
+        </Box>
       </Box>
     </Box>
   );

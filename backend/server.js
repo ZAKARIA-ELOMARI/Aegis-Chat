@@ -135,19 +135,52 @@ io.on('connection', (socket) => {
         sender: senderId,
         recipient: recipientId,
         content: Buffer.from(content, 'utf-8'), // Save the encrypted buffer directly
-        conversationId: conversationId
+        conversationId: conversationId,
+        deliveredAt: new Date() // Mark as delivered when sent
       });
 
       // Save the message to the database
-      await message.save();
+      const savedMessage = await message.save();
 
       // Forward the encrypted payload to the recipient's private room
       io.to(recipientId).emit('privateMessage', {
         content: content.toString('utf-8'), // Convert buffer back to string
         senderId: socket.user.sub,
+        messageId: savedMessage._id.toString()
       });
+
+      // Send delivery confirmation back to sender
+      socket.emit('messageDelivered', {
+        messageId: savedMessage._id.toString(),
+        deliveredAt: savedMessage.deliveredAt
+      });
+
     } catch (error) {
       logger.error('Error handling private message:', { error: error.message, userId: socket.user.sub, recipientId });
+    }
+  });
+
+  // Listen for message read events
+  socket.on('messageRead', async ({ messageId }) => {
+    try {
+      const message = await Message.findById(messageId);
+      if (!message) {
+        return;
+      }
+
+      // Only the recipient can mark as read
+      if (message.recipient.toString() === socket.user.sub) {
+        message.readAt = new Date();
+        await message.save();
+
+        // Notify the sender that their message was read
+        io.to(message.sender.toString()).emit('messageRead', {
+          messageId: messageId,
+          readAt: message.readAt
+        });
+      }
+    } catch (error) {
+      logger.error('Error handling message read:', { error: error.message, messageId });
     }
   });
 

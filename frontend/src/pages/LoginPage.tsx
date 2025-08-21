@@ -127,80 +127,120 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <Container component="main" maxWidth="xs">
-      <Box
-        sx={{
-          marginTop: 8,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-        }}
-      >
-        <Typography component="h1" variant="h5">
-          Aegis Chat Login
-        </Typography>
-
-        {/* Conditionally render either the login form or the 2FA form */}
-        {!twoFactorRequired ? (
-          // --- Original Login Form ---
-          <Box component="form" onSubmit={handleLoginSubmit} sx={{ mt: 1 }}>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              id="email"
-              label="Email Address"
-              name="email"
-              autoComplete="email"
-              autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Password"
-              type="password"
-              id="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }} disabled={loading}>
-              {loading ? <CircularProgress size={24} /> : 'Sign In'}
-            </Button>
-          </Box>
-        ) : (
-          // --- NEW 2FA Form ---
-          <Box component="form" onSubmit={handle2faSubmit} sx={{ mt: 3 }}>
-            <Typography sx={{ mb: 2 }}>Enter the code from your authenticator app.</Typography>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="2fa-token"
-              label="6-Digit Code"
-              id="2fa-token"
-              autoFocus
-              value={twoFactorToken}
-              onChange={(e) => setTwoFactorToken(e.target.value)}
-            />
-            <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }} disabled={loading}>
-              {loading ? <CircularProgress size={24} /> : 'Verify'}
-            </Button>
-            {/* ADD THIS HELPER TEXT */}
-            <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 2 }}>
-              Lost access to your device? Please contact an administrator to have your 2FA reset.
+    <Box className="login-page">
+      {/* Floating background shapes */}
+      <div className="floating-shapes">
+        <div className="floating-shape"></div>
+        <div className="floating-shape"></div>
+        <div className="floating-shape"></div>
+        <div className="floating-shape"></div>
+      </div>
+      
+      <Container maxWidth="sm" className="login-container">
+        <Box className="login-card">
+          <Box className="login-header">
+            <Typography className="login-title">
+              Welcome to Aegis Chat
+            </Typography>
+            <Typography className="login-subtitle">
+              Secure messaging with end-to-end encryption
             </Typography>
           </Box>
-        )}
 
-        {error && <Alert severity="error" sx={{ width: '100%', mt: 2 }}>{error}</Alert>}
+          {error && (
+            <Alert severity="error" className="error-alert">
+              {error}
+            </Alert>
+          )}
 
-      </Box>
-    </Container>
+          {/* Conditionally render either the login form or the 2FA form */}
+          {!twoFactorRequired ? (
+            // --- Original Login Form ---
+            <Box component="form" onSubmit={handleLoginSubmit} className="login-form">
+              <Box className="form-field">
+                <TextField
+                  margin="normal"
+                  required
+                  fullWidth
+                  id="email"
+                  label="Email Address"
+                  name="email"
+                  autoComplete="email"
+                  autoFocus
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </Box>
+              
+              <Box className="form-field">
+                <TextField
+                  margin="normal"
+                  required
+                  fullWidth
+                  name="password"
+                  label="Password"
+                  type="password"
+                  id="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </Box>
+
+              <Button 
+                type="submit" 
+                fullWidth 
+                variant="contained" 
+                className="login-button"
+                disabled={loading}
+              >
+                {loading ? <CircularProgress size={24} /> : 'Sign In'}
+              </Button>
+            </Box>
+          ) : (
+            // --- NEW 2FA Form ---
+            <Box className="two-factor-section">
+              <Typography variant="h6" className="two-factor-title">
+                Two-Factor Authentication
+              </Typography>
+              <Typography className="two-factor-description">
+                Enter the code from your authenticator app.
+              </Typography>
+              
+              <Box component="form" onSubmit={handle2faSubmit} className="login-form">
+                <Box className="form-field">
+                  <TextField
+                    margin="normal"
+                    required
+                    fullWidth
+                    name="2fa-token"
+                    label="6-Digit Code"
+                    id="2fa-token"
+                    autoFocus
+                    value={twoFactorToken}
+                    onChange={(e) => setTwoFactorToken(e.target.value)}
+                  />
+                </Box>
+
+                <Button 
+                  type="submit" 
+                  fullWidth 
+                  variant="contained" 
+                  className="login-button"
+                  disabled={loading}
+                >
+                  {loading ? <CircularProgress size={24} /> : 'Verify'}
+                </Button>
+                
+                <Typography className="two-factor-description" sx={{ mt: 2 }}>
+                  Lost access to your device? Please contact an administrator to have your 2FA reset.
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </Box>
+      </Container>
+    </Box>
   );
 };
 

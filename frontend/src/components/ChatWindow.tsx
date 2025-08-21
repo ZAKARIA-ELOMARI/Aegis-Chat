@@ -1,6 +1,6 @@
 // src/components/ChatWindow.tsx
 import React, { useEffect, useState, useRef } from 'react';
-import { Box, TextField, Button, Paper, Typography, IconButton } from '@mui/material';
+import { Box, TextField, Button, Typography, IconButton } from '@mui/material';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import useUserStore from '../store/userStore';
 import useAuthStore from '../store/authStore';
@@ -68,13 +68,32 @@ const ChatWindow: React.FC = () => {
           // 3. Set the component's state with the fully decrypted messages.
           setMessages(decryptedMessages);
 
+          // 4. Mark unread messages as read
+          const unreadMessages = historicalMessages.filter(msg => 
+            msg.sender !== currentUserId && !msg.readAt
+          );
+
+          for (const msg of unreadMessages) {
+            try {
+              await apiClient.put(`/messages/${msg._id}/read`);
+              
+              // Also emit socket event for real-time read receipt
+              if (accessToken) {
+                const socket = getSocket(accessToken);
+                socket.emit('messageRead', { messageId: msg._id });
+              }
+            } catch (error) {
+              console.error('Failed to mark message as read:', error);
+            }
+          }
+
         } catch (error) {
           console.error('Failed to fetch or decrypt message history:', error);
         }
       };
       fetchHistory();
     }
-  }, [selectedUser, setMessages, currentUserId]); // Added currentUserId to dependency array
+  }, [selectedUser, setMessages, currentUserId, accessToken]); // Added currentUserId and accessToken to dependency array
 
   // Function to handle when a file is selected
   // Function to handle when a file is selected
@@ -164,11 +183,15 @@ const handleSendMessage = async (e: React.FormEvent) => {
   if (!selectedUser) return null;
 
   return (
-    <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Typography variant="h6" sx={{ p: 2, borderBottom: '1px solid #ddd' }}>
-        Chat with {selectedUser.username}
-      </Typography>
-      <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column' }}>
+    <Box className="chat-window">
+      <Box className="chat-header">
+        <Typography className="chat-header-title">
+          <span className="chat-header-status"></span>
+          Chat with {selectedUser.username}
+        </Typography>
+      </Box>
+      
+      <Box className="chat-messages">
         {messages.map((msg) => {
           // Check if the message content is a file URL from our MinIO server
           const isFileUrl = msg.content.includes(import.meta.env.VITE_MINIO_ENDPOINT_URL);
@@ -188,44 +211,79 @@ const handleSendMessage = async (e: React.FormEvent) => {
               }
           };
 
+          // Determine read receipt status for sent messages
+          const isMyMessage = msg.sender === currentUserId;
+          let readReceiptIcon = '';
+          
+          if (isMyMessage) {
+            if (msg.readAt) {
+              readReceiptIcon = '✓✓'; // Read (blue double check)
+            } else if (msg.deliveredAt) {
+              readReceiptIcon = '✓✓'; // Delivered (gray double check)
+            } else {
+              readReceiptIcon = '✓'; // Sent (single check)
+            }
+          }
+
           return (
-            <Paper
+            <Box
               key={msg._id}
-              sx={{
-                p: 1.5,
-                mb: 1,
-                maxWidth: '70%',
-                alignSelf: msg.sender === currentUserId ? 'flex-end' : 'flex-start',
-                bgcolor: msg.sender === currentUserId ? 'primary.main' : 'grey.300',
-                color: msg.sender === currentUserId ? 'primary.contrastText' : 'text.primary',
-                ml: msg.sender === currentUserId ? 'auto' : 0,
-                mr: msg.sender !== currentUserId ? 'auto' : 0,
-                wordBreak: 'break-word',
-              }}
+              className={`message-bubble ${isMyMessage ? 'sent' : 'received'}`}
             >
               {isFileUrl ? (
-                <a href={msg.content} onClick={handleFileClick} style={{ color: 'inherit', textDecoration: 'underline' }}>
-                  {fileName}
+                <a 
+                  href={msg.content} 
+                  onClick={handleFileClick} 
+                  className="message-file-link"
+                >
+                  📎 {fileName}
                 </a>
               ) : (
-                <Typography variant="body1">{msg.content}</Typography>
+                <Typography className="message-content">{msg.content}</Typography>
               )}
-            </Paper>
+              
+              {/* Read receipt for sent messages */}
+              {isMyMessage && (
+                <Box className="message-status" sx={{ 
+                  fontSize: '0.7rem', 
+                  color: msg.readAt ? '#4fc3f7' : '#9e9e9e',
+                  textAlign: 'right',
+                  mt: 0.5 
+                }}>
+                  {readReceiptIcon}
+                </Box>
+              )}
+              
+              {/* Timestamp */}
+              <Box className="message-timestamp" sx={{ 
+                fontSize: '0.7rem', 
+                color: 'text.secondary',
+                textAlign: isMyMessage ? 'right' : 'left',
+                mt: 0.5 
+              }}>
+                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Box>
+            </Box>
           );
         })}
         <div ref={messagesEndRef} />
       </Box>
 
       {/* Typing indicator */}
-      <Box sx={{ height: '24px', px: 2, fontStyle: 'italic' }}>
+      <Box className="typing-indicator">
         {typingUser === selectedUser?._id && (
-          <Typography variant="body2" color="text.secondary">
-            {selectedUser.username} is typing...
-          </Typography>
+          <span>
+            {selectedUser.username} is typing
+            <span className="typing-dots">
+              <span className="typing-dot"></span>
+              <span className="typing-dot"></span>
+              <span className="typing-dot"></span>
+            </span>
+          </span>
         )}
       </Box>
 
-      <Box component="form" onSubmit={handleSendMessage} sx={{ p: 2, borderTop: '1px solid #ddd', display: 'flex', alignItems: 'center' }}>
+      <Box component="form" onSubmit={handleSendMessage} className="chat-input-container">
         {/* Hidden file input */}
         <input
           type="file"
@@ -234,7 +292,10 @@ const handleSendMessage = async (e: React.FormEvent) => {
           onChange={handleFileChange}
           accept=".jpg, .jpeg, .png, .pdf"
         />
-        <IconButton onClick={() => fileInputRef.current?.click()}>
+        <IconButton 
+          onClick={() => fileInputRef.current?.click()}
+          className="file-input-button"
+        >
           <AttachFileIcon />
         </IconButton>
         <TextField
@@ -243,8 +304,14 @@ const handleSendMessage = async (e: React.FormEvent) => {
           placeholder="Type a message or attach a file..."
           value={newMessage}
           onChange={handleInputChange}
+          className="chat-text-field"
         />
-        <Button type="submit" variant="contained" sx={{ ml: 1 }}>
+        <Button 
+          type="submit" 
+          variant="contained" 
+          className="send-button"
+          disabled={!newMessage.trim()}
+        >
           Send
         </Button>
       </Box>
