@@ -13,6 +13,7 @@ const ChatWindow: React.FC = () => {
   const { selectedUser, messages, setMessages, addMessage, typingUser } = useUserStore();
   const { userId: currentUserId, accessToken } = useAuthStore();
   const [newMessage, setNewMessage] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null); // <-- AJOUTEZ CETTE LIGNE
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
@@ -56,10 +57,18 @@ const ChatWindow: React.FC = () => {
               myKeys.secretKey
             );
 
+            // <-- CHANGEMENT : DÉCHIFFRER AUSSI L'URL DU FICHIER -->
+            const decryptedFileUrl = msg.fileUrl ? decryptMessage(
+              msg.fileUrl, // C'est l'URL cryptée
+              isMyMessage ? selectedUser.publicKey! : theirPublicKey,
+              myKeys.secretKey
+            ) : null;
+
             // Return a new message object with the decrypted content.
             return {
               ...msg,
               content: decryptedContent || "[Decryption Failed]",
+              fileUrl: decryptedFileUrl || null,
             };
           });
 
@@ -97,9 +106,11 @@ const ChatWindow: React.FC = () => {
 
   // Function to handle when a file is selected
   // Function to handle when a file is selected
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setNewMessage(`File: ${e.target.files[0].name}`);
+      const file = e.target.files[0];
+      setSelectedFile(file); // <-- CHANGEMENT : Stocker le fichier réel
+      setNewMessage(file.name); // <-- CHANGEMENT : Afficher juste le nom
     }
   };
   // Handler for input changes to emit typing events
@@ -124,59 +135,98 @@ const ChatWindow: React.FC = () => {
 
 const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Basic validation to ensure we have everything we need
-    if (!newMessage.trim() || !selectedUser || !accessToken || !currentUserId) {
+    
+    // Validation mise à jour
+    if ((!newMessage.trim() && !selectedFile) || !selectedUser || !accessToken || !currentUserId) {
         return;
     }
 
-    // --- START E2EE LOGIC ---
-
-    // 1. Get the current user's secret key from local storage.
     const myKeys = getKeys();
-    // 2. Get the recipient's public key from the user object in our state.
     const recipientPublicKey = selectedUser.publicKey;
 
-    // 3. CRITICAL CHECK: Ensure both keys are available before proceeding.
     if (!myKeys || !myKeys.secretKey || !recipientPublicKey) {
         alert('Cannot send message. Cryptographic keys are missing for you or the recipient.');
         console.error("Encryption keys are missing.", { myKeys, recipientPublicKey });
         return;
     }
 
-    try {
-        // 4. Encrypt the plaintext message using our utility function.
-        const encryptedContent = encryptMessage(
-            newMessage,
-            recipientPublicKey,
-            myKeys.secretKey
-        );
-        
-        // --- END E2EE LOGIC ---
+    // --- NOUVELLE LOGIQUE DE GESTION DE FICHIER ---
+    if (selectedFile) {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
 
-        const socket = getSocket(accessToken);
-        const messageData = {
-            senderId: currentUserId,
-            recipientId: selectedUser._id,
-            content: encryptedContent, // 5. Send the encrypted payload string.
-        };
+        try {
+            // 1. Uploader le fichier SÉPARÉMENT pour obtenir l'URL
+            console.log("Uploading file...");
+            // PAS D'EN-TÊTE 'Content-Type' ! axios le fait pour vous.
+            const uploadResponse = await apiClient.post('/files/upload', formData);
+            
+            const fileUrl = uploadResponse.data.url; // L'URL de MinIO
+            console.log("File uploaded, URL:", fileUrl);
+            
+            // 2. Maintenant, envoyer les infos du message via socket
+            const socket = getSocket(accessToken);
+            const messageData = {
+                senderId: currentUserId,
+                recipientId: selectedUser._id,
+                content: encryptMessage(newMessage, recipientPublicKey, myKeys.secretKey), // Le nom du fichier crypté
+                fileUrl: encryptMessage(fileUrl, recipientPublicKey, myKeys.secretKey) // L'URL MinIO cryptée
+            };
+            socket.emit('privateMessage', messageData);
 
-        socket.emit('privateMessage', messageData);
+            // 3. Ajouter à l'UI locale
+            addMessage({
+                _id: new Date().toISOString(),
+                sender: currentUserId,
+                recipient: selectedUser._id,
+                content: newMessage, // Le nom du fichier en clair
+                fileUrl: fileUrl, // L'URL MinIO en clair
+                createdAt: new Date().toISOString(),
+            });
 
-        // 6. Optimistically add the PLAINTEXT message to our own UI immediately.
-        //    This makes the app feel responsive. We don't need to decrypt our own message.
-        addMessage({
-            _id: new Date().toISOString(), // Temporary ID for rendering
-            sender: currentUserId,
-            recipient: selectedUser._id,
-            content: newMessage, // Use original plaintext for our own view
-            createdAt: new Date().toISOString(),
-        });
+            // 4. Réinitialiser
+            setNewMessage('');
+            setSelectedFile(null); // <-- TRÈS IMPORTANT
+            if (fileInputRef.current) fileInputRef.current.value = ''; // Réinitialiser le champ de fichier
 
-        setNewMessage('');
-    } catch (error) {
-        console.error('Failed to encrypt or send message:', error);
-        alert('A cryptographic error occurred. Could not send message.');
+        } catch (error) {
+            console.error('File upload failed:', error);
+            alert('File upload failed. It may be unsafe or too large.');
+        }
+    
+    // --- LOGIQUE D'ENVOI DE TEXTE (votre code existant) ---
+    } else if (newMessage.trim()) { 
+        try {
+            const encryptedContent = encryptMessage(
+                newMessage,
+                recipientPublicKey,
+                myKeys.secretKey
+            );
+            
+            const socket = getSocket(accessToken);
+            const messageData = {
+                senderId: currentUserId,
+                recipientId: selectedUser._id,
+                content: encryptedContent,
+                fileUrl: null // Pas de fichier
+            };
+    
+            socket.emit('privateMessage', messageData);
+    
+            addMessage({
+                _id: new Date().toISOString(),
+                sender: currentUserId,
+                recipient: selectedUser._id,
+                content: newMessage,
+                fileUrl: null, // Pas de fichier
+                createdAt: new Date().toISOString(),
+            });
+    
+            setNewMessage('');
+        } catch (error) {
+            console.error('Failed to encrypt or send message:', error);
+            alert('A cryptographic error occurred. Could not send message.');
+        }
     }
   };
 
@@ -192,80 +242,90 @@ const handleSendMessage = async (e: React.FormEvent) => {
       </Box>
       
       <Box className="chat-messages">
-        {messages.map((msg) => {
-          // Check if the message content is a file URL from our MinIO server
-          const isFileUrl = msg.content.includes(import.meta.env.VITE_MINIO_ENDPOINT_URL);
-          const fileName = isFileUrl ? msg.content.split('/').pop() : '';
+        // Remplacez cette section dans ChatWindow.tsx (lignes 246-304)
+{messages.map((msg) => {
+  // Déterminer si c'est un message avec fichier
+  const isFileMessage = !!msg.fileUrl;
+  const messageText = msg.content; // Nom du fichier ou texte normal
 
-          const handleFileClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
-              e.preventDefault();
-              if (!fileName) return;
+  const handleFileClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    if (!msg.fileUrl) return;
 
-              try {
-                  const response = await apiClient.get(`/files/access/${fileName}`);
-                  const presignedUrl = response.data.url;
-                  window.open(presignedUrl, '_blank');
-              } catch (error) {
-                  console.error("Could not get secure link for file", error);
-                  alert("Error: Could not access file.");
-              }
-          };
+    // Extraire la clé du fichier depuis l'URL MinIO
+    const fileKey = msg.fileUrl.split('/').pop();
+    if (!fileKey) {
+      console.error("Could not parse file key from URL:", msg.fileUrl);
+      alert("Error: Invalid file URL.");
+      return;
+    }
 
-          // Determine read receipt status for sent messages
-          const isMyMessage = msg.sender === currentUserId;
-          let readReceiptIcon = '';
-          
-          if (isMyMessage) {
-            if (msg.readAt) {
-              readReceiptIcon = '✓✓'; // Read (blue double check)
-            } else if (msg.deliveredAt) {
-              readReceiptIcon = '✓✓'; // Delivered (gray double check)
-            } else {
-              readReceiptIcon = '✓'; // Sent (single check)
-            }
-          }
+    try {
+      console.log("Requesting access for file key:", fileKey);
+      const response = await apiClient.get(`/files/access/${fileKey}`);
+      const presignedUrl = response.data.url;
+      window.open(presignedUrl, '_blank');
+    } catch (error) {
+      console.error("Could not get secure link for file", error);
+      alert("Error: Could not access file.");
+    }
+  };
 
-          return (
-            <Box
-              key={msg._id}
-              className={`message-bubble ${isMyMessage ? 'sent' : 'received'}`}
-            >
-              {isFileUrl ? (
-                <a 
-                  href={msg.content} 
-                  onClick={handleFileClick} 
-                  className="message-file-link"
-                >
-                  📎 {fileName}
-                </a>
-              ) : (
-                <Typography className="message-content">{msg.content}</Typography>
-              )}
-              
-              {/* Read receipt for sent messages */}
-              {isMyMessage && (
-                <Box className="message-status" sx={{ 
-                  fontSize: '0.7rem', 
-                  color: msg.readAt ? '#4fc3f7' : '#9e9e9e',
-                  textAlign: 'right',
-                  mt: 0.5 
-                }}>
-                  {readReceiptIcon}
-                </Box>
-              )}
-              
-              {/* Timestamp */}
-              <Box className="message-timestamp" sx={{ 
-                fontSize: '0.7rem', 
-                color: 'text.secondary',
-                textAlign: isMyMessage ? 'right' : 'left',
-                mt: 0.5 
-              }}>
-                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </Box>
-            </Box>
-          );
-        })}
+  // Déterminer le statut de lecture pour les messages envoyés
+  const isMyMessage = msg.sender === currentUserId;
+  let readReceiptIcon = '';
+  
+  if (isMyMessage) {
+    if (msg.readAt) {
+      readReceiptIcon = '✓✓'; // Lu (double coche bleue)
+    } else if (msg.deliveredAt) {
+      readReceiptIcon = '✓✓'; // Délivré (double coche grise)
+    } else {
+      readReceiptIcon = '✓'; // Envoyé (simple coche)
+    }
+  }
+
+  return (
+    <Box
+      key={msg._id}
+      className={`message-bubble ${isMyMessage ? 'sent' : 'received'}`}
+    >
+      {isFileMessage ? (
+        <a 
+          href="#" 
+          onClick={handleFileClick} 
+          className="message-file-link"
+        >
+          📎 {messageText}
+        </a>
+      ) : (
+        <Typography className="message-content">{messageText}</Typography>
+      )}
+      
+      {/* Read receipt pour les messages envoyés */}
+      {isMyMessage && (
+        <Box className="message-status" sx={{ 
+          fontSize: '0.7rem', 
+          color: msg.readAt ? '#4fc3f7' : '#9e9e9e',
+          textAlign: 'right',
+          mt: 0.5 
+        }}>
+          {readReceiptIcon}
+        </Box>
+      )}
+      
+      {/* Timestamp */}
+      <Box className="message-timestamp" sx={{ 
+        fontSize: '0.7rem', 
+        color: 'text.secondary',
+        textAlign: isMyMessage ? 'right' : 'left',
+        mt: 0.5 
+      }}>
+        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </Box>
+    </Box>
+  );
+})}
         <div ref={messagesEndRef} />
       </Box>
 

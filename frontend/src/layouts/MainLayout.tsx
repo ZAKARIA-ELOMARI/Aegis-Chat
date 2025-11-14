@@ -31,11 +31,12 @@ import AdminDropdown from '../components/AdminDropdown';
 import type { User } from '../types/user';
 import { getSocket } from '../api/socketClient';
 import type { Message } from '../types/message';
-import { getKeys, decryptMessage } from '../utils/crypto'; // ADD THIS LINE
+
+import { getKeys, decryptMessage, generateAndStoreKeys } from '../utils/crypto';
 
 const MainLayout: React.FC = () => {
   const { users, setUsers, setSelectedUser, setOnlineUsers, setTypingUser, unreadCounts, setUnreadCount } = useUserStore();
-  const { logout, userId: currentUserId, accessToken, role } = useAuthStore(); // Add role
+  const { logout, userId: currentUserId, accessToken, role, csrfToken } = useAuthStore();
   const { setMessages: setBroadcasts, addMessage: addBroadcast, unreadCount: broadcastUnreadCount, setUnreadCount: setBroadcastUnreadCount } = useBroadcastStore();
   const toggleBroadcastPanel = useBroadcastStore((state) => state.togglePanel);
   const navigate = useNavigate();
@@ -105,65 +106,83 @@ const MainLayout: React.FC = () => {
   }, [setBroadcasts]);
 
   useEffect(() => {
+    const initializeCryptoKeys = async () => {
+      // Ne s'exécute que si nous sommes authentifiés ET que le jeton CSRF
+      // (qui a été re-fetché par App.tsx) est présent.
+      if (accessToken && csrfToken) {
+        if (!getKeys()) {
+          console.log('MainLayout: Pas de clés trouvées, génération de nouvelles clés...');
+          try {
+            // Cet appel (qui fait un POST) utilisera maintenant le bon jeton CSRF
+            await generateAndStoreKeys();
+            console.log('MainLayout: Clés générées et uploadées avec succès.');
+          } catch (error) {
+            console.error('MainLayout: Échec de la génération ou de l\'upload des clés.', error);
+          }
+        } else {
+          console.log('MainLayout: Clés existantes trouvées.');
+        }
+      }
+    };
+    
+    initializeCryptoKeys();
+  }, [accessToken, csrfToken]); // Se déclenche quand accessToken et csrfToken sont prêts
+
+  useEffect(() => {
     if (!accessToken) return;
 
     const socket = getSocket(accessToken);
 
-    const handlePrivateMessage = (newMessage: { content: string, senderId: string }) => {
-        // Get the LATEST state directly from the stores inside the handler
-        const { users, selectedUser, addMessage, incrementUnreadCount } = useUserStore.getState();
-        const { userId: currentUserId } = useAuthStore.getState();
+    const handlePrivateMessage = (newMessage: { content: string, fileUrl?: string, senderId: string }) => {
+    const { users, selectedUser, addMessage, incrementUnreadCount } = useUserStore.getState();
+    const { userId: currentUserId } = useAuthStore.getState();
 
-        // Only process the message if the chat with the sender is currently open
-        if (selectedUser && newMessage.senderId === selectedUser._id) {
-            
-            // --- START E2EE DECRYPTION LOGIC ---
+    if (selectedUser && newMessage.senderId === selectedUser._id) {
+        const myKeys = getKeys();
+        const sender = users.find(u => u._id === newMessage.senderId);
 
-            // 1. Get the current user's (the receiver's) keys.
-            const myKeys = getKeys();
-            // 2. Find the sender's full user object to get their public key.
-            const sender = users.find(u => u._id === newMessage.senderId);
-
-            // 3. CRITICAL CHECK: Ensure we have all keys needed for decryption.
-            if (!myKeys || !myKeys.secretKey || !sender || !sender.publicKey) {
-                console.error("Cannot decrypt message. Cryptographic keys are missing.");
-                // Optionally, display an error message in the chat window
-                addMessage({
-                    _id: new Date().toISOString(),
-                    sender: newMessage.senderId,
-                    recipient: currentUserId!,
-                    content: "[Could not decrypt message: Keys unavailable]",
-                    createdAt: new Date().toISOString(),
-                });
-                return;
-            }
-
-            // 4. Decrypt the message content using our utility function.
-            const decryptedContent = decryptMessage(
-                newMessage.content,
-                sender.publicKey,
-                myKeys.secretKey
-            );
-
-            // --- END E2EE DECRYPTION LOGIC ---
-
-            const messagePayload: Message = {
+        if (!myKeys || !myKeys.secretKey || !sender || !sender.publicKey) {
+            console.error("Cannot decrypt message. Cryptographic keys are missing.");
+            addMessage({
                 _id: new Date().toISOString(),
-                content: decryptedContent || "[Decryption Failed]", // 5. Use decrypted content
                 sender: newMessage.senderId,
                 recipient: currentUserId!,
+                content: "[Could not decrypt message: Keys unavailable]",
+                fileUrl: null,
                 createdAt: new Date().toISOString(),
-            };
-
-            // Call the action to add the now-decrypted message to the UI
-            addMessage(messagePayload);
-        } else {
-            // This part handles notifications for inactive chats
-            console.log(`Received message from ${newMessage.senderId}, but their chat is not active.`);
-            // Increment unread count for this user
-            incrementUnreadCount(newMessage.senderId);
+            });
+            return;
         }
-    };
+
+        // Déchiffrer le contenu (texte ou nom de fichier)
+        const decryptedContent = decryptMessage(
+            newMessage.content,
+            sender.publicKey,
+            myKeys.secretKey
+        );
+
+        // Déchiffrer l'URL du fichier si elle existe
+        const decryptedFileUrl = newMessage.fileUrl ? decryptMessage(
+            newMessage.fileUrl,
+            sender.publicKey,
+            myKeys.secretKey
+        ) : null;
+
+        const messagePayload: Message = {
+            _id: new Date().toISOString(),
+            content: decryptedContent || "[Decryption Failed]",
+            fileUrl: decryptedFileUrl,
+            sender: newMessage.senderId,
+            recipient: currentUserId!,
+            createdAt: new Date().toISOString(),
+        };
+
+        addMessage(messagePayload);
+    } else {
+        console.log(`Received message from ${newMessage.senderId}, but their chat is not active.`);
+        incrementUnreadCount(newMessage.senderId);
+    }
+};
 
     // NEW: Listen for the online user list
     socket.on('updateOnlineUsers', (onlineUserIds: string[]) => {

@@ -8,6 +8,7 @@ import theme from './theme/theme';
 
 const App: React.FC = () => {
   const setCsrfToken = useAuthStore((state) => state.setCsrfToken);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   useEffect(() => {
     // Fetch CSRF token when the app loads
@@ -21,7 +22,7 @@ const App: React.FC = () => {
     };
 
     initializeCsrfToken();
-  }, [setCsrfToken]);
+  }, [setCsrfToken, isAuthenticated]);
 
   return (
     <ThemeProvider theme={theme}>

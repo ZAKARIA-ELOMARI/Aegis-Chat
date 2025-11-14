@@ -1,22 +1,24 @@
+// backend/routes/auth.routes.js
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.middleware');
-const { authLimiter, logoutLimiter } = require('../middleware/rateLimiter.middleware');
+const { logoutLimiter } = require('../middleware/rateLimiter.middleware'); // <-- authLimiter n'est plus nécessaire ici
 
 // --- Import all necessary controller functions ---
+// <-- CHANGEMENT : Ne gardez que les contrôleurs pour les routes PRIVÉES
 const {
-  register,
-  login,
-  logout, // Import the logout function
+  // register, // 'register' est géré par admin.routes
+  // login, // SUPPRIMÉ (déplacé vers server.js)
+  logout,
   setInitialPassword,
-  forgotPassword,
-  resetPassword,
-  refreshToken,
+  // forgotPassword, // SUPPRIMÉ (déplacé vers server.js)
+  // resetPassword, // SUPPRIMÉ (déplacé vers server.js)
+  // refreshToken, // SUPPRIMÉ (déplacé vers server.js)
   verifyLogin2FA
 } = require('../controllers/auth.controller');
 
 const {
-  loginRules,
+  // loginRules, // SUPPRIMÉ (déplacé vers server.js)
   setInitialPasswordRules,
   handleValidationErrors
 } = require('../middleware/validators.middleware');
@@ -24,20 +26,20 @@ const {
 
 // --- Define All Authentication Routes ---
 
-router.post('/login', authLimiter, loginRules(), handleValidationErrors, login);
+// router.post('/login', ...); // <-- CHANGEMENT : SUPPRIMÉ
 
 // ** THIS IS THE NEWLY ADDED ROUTE **
 router.post('/logout', logoutLimiter, auth, logout);
 
 router.post('/set-initial-password', auth, setInitialPasswordRules(), handleValidationErrors, setInitialPassword);
 
-router.post('/refresh-token', refreshToken);
+// router.post('/refresh-token', ...); // <-- CHANGEMENT : SUPPRIMÉ
 
 // 2FA Login Verification Route
 router.post('/2fa/verify-login', auth, verifyLogin2FA);
 
 // Password Reset Routes
-router.post('/forgot-password', authLimiter, forgotPassword);
-router.post('/reset-password/:token', authLimiter, setInitialPasswordRules(), handleValidationErrors, resetPassword);
+// router.post('/forgot-password', ...); // <-- CHANGEMENT : SUPPRIMÉ
+// router.post('/reset-password/:token', ...); // <-- CHANGEMENT : SUPPRIMÉ
 
 module.exports = router;

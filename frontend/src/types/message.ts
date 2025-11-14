@@ -6,6 +6,7 @@ export interface Message {
   // Note: The backend stores content as a Buffer. We'll treat it as a string for now.
   // For E2EE, this would be handled as a buffer/typed array.
   content: string; 
+    fileUrl?: string | null; // Add this line for file attachments
   createdAt: string;
   deliveredAt?: string | null;
   readAt?: string | null;

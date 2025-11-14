@@ -52,53 +52,67 @@ const cookieParser = require('cookie-parser');
 const csrf = require('csurf');
 const { SecurityLogger, SECURITY_EVENTS, RISK_LEVELS } = require('./utils/securityLogger.util');
 
+// --- 1. MIDDLEWARES GLOBAUX (APPLIQUÉS À TOUTES LES REQUÊTES) ---
+// <-- CHANGEMENT : Ces middlewares sont déplacés en haut, AVANT les routes
 app.use(cookieParser());
 
-// CSRF protection middleware
-const csrfProtection = csrf({ cookie: true });
-app.use(csrfProtection);
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'", "ws://localhost:*", "wss://localhost:*"],
+      fontSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'", "blob:"],
+      frameSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+app.use(cors({
+  origin: 'http://localhost:5173', // Votre origine frontend
+  credentials: true 
+}));
+app.use(express.json());
+app.use(morgan('combined', { stream: logger.stream }));
+
+
 const server = http.createServer(app); // <-- Create an HTTP server from our Express app
 
 // --- Configure Socket.IO ---
 const io = new Server(server, {
   cors: {
-    origin: "*", // For development, allow any origin. In production, restrict this to your frontend's URL.
+    origin: "*", // Pour le dev, ou 'http://localhost:5173' en production
     methods: ["GET", "POST"]
   }
 });
 
+// ... (Toute votre logique Socket.IO (io.use, io.on) reste inchangée ici) ...
 // Make io instance globally available for security logger
 global.io = io;
-
 let onlineUsers = {};
-
 // --- Socket.IO Authentication Middleware ---
 io.use((socket, next) => {
-  // The client will send the token in the 'auth' object
   const token = socket.handshake.auth.token;
-
-  // Check if token exists
   if (!token) {
     return next(new Error('Authentication Error: No token provided.'));
   }
-
-  // Verify the token
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
       return next(new Error('Authentication Error: Invalid token.'));
     }
-    // If token is valid, attach the user info to the socket object
     socket.user = decoded;
     next();
   });
 });
-
 // --- Socket.IO Connection Logic ---
 io.on('connection', (socket) => {
-  // This code now only runs for AUTHENTICATED users
   logger.info(`Authenticated user connected: ${socket.user.sub} with socket ID: ${socket.id}`);
-  
-  // Log security event for user connection
   SecurityLogger.logSecurityEvent(
     SECURITY_EVENTS.SESSION_CREATED,
     RISK_LEVELS.LOW,
@@ -110,77 +124,47 @@ io.on('connection', (socket) => {
       sessionType: 'WEBSOCKET'
     }
   );
-  
-  // --- Start of new logic ---
-  // Add user to our tracking object
   logger.info(`User ${socket.user.sub} connected. Adding to online users.`);
   onlineUsers[socket.user.sub] = socket.id;
-
-  // Emit the updated list of online users to everyone
   io.emit('updateOnlineUsers', Object.keys(onlineUsers));
-  // --- End of new logic ---
-
-  // Join a private room based on their user ID
   socket.join(socket.user.sub);
   logger.info(`User ${socket.user.sub} joined room ${socket.user.sub}`);
-
-  // Listen for a 'privateMessage' event
   socket.on('privateMessage', async ({ senderId, recipientId, content, fileUrl }) => {
   try {
     logger.info(`Received message from ${senderId} to ${recipientId}`, { hasFile: !!fileUrl });
-
-      // The 'content' is now expected to be an encrypted buffer from the client.
-      // We remove the string validation. The client is responsible for encryption.
-
-      // Create a consistent conversation ID
       const conversationId = [senderId, recipientId].sort().join('_');
-
-      // Create a new message document
       const message = new Message({
         sender: senderId,
         recipient: recipientId,
-        content: Buffer.from(content, 'utf-8'), // Save the encrypted buffer directly
-        fileUrl: fileUrl || null, // Store file URL if present
+        content: Buffer.from(content, 'utf-8'),
+        fileUrl: fileUrl || null,
         conversationId: conversationId,
-        deliveredAt: new Date() // Mark as delivered when sent
+        deliveredAt: new Date()
       });
-
-      // Save the message to the database
       const savedMessage = await message.save();
-
-      // Forward the encrypted payload to the recipient's private room
       io.to(recipientId).emit('privateMessage', {
-        content: content.toString('utf-8'), // Convert buffer back to string
-        fileUrl: fileUrl || null, // Include file URL if present
+        content: content.toString('utf-8'),
+        fileUrl: fileUrl || null,
         senderId: socket.user.sub,
         messageId: savedMessage._id.toString()
       });
-
-      // Send delivery confirmation back to sender
       socket.emit('messageDelivered', {
         messageId: savedMessage._id.toString(),
         deliveredAt: savedMessage.deliveredAt
       });
-
     } catch (error) {
       logger.error('Error handling private message:', { error: error.message, userId: socket.user.sub, recipientId });
     }
   });
-
-  // Listen for message read events
   socket.on('messageRead', async ({ messageId }) => {
     try {
       const message = await Message.findById(messageId);
       if (!message) {
         return;
       }
-
-      // Only the recipient can mark as read
       if (message.recipient.toString() === socket.user.sub) {
         message.readAt = new Date();
         await message.save();
-
-        // Notify the sender that their message was read
         io.to(message.sender.toString()).emit('messageRead', {
           messageId: messageId,
           readAt: message.readAt
@@ -190,18 +174,11 @@ io.on('connection', (socket) => {
       logger.error('Error handling message read:', { error: error.message, messageId });
     }
   });
-
-  // --- Add a new listener for typing indicators ---
   socket.on('typing', ({ recipientId, isTyping }) => {
-    // Forward the typing status directly to the recipient's room
     io.to(recipientId).emit('typing', { senderId: socket.user.sub, isTyping });
   });
-  // --- End of new listener ---
-
   socket.on('disconnect', () => {
     logger.info(`User ${socket.user.sub} disconnected.`);
-    
-    // Log security event for user disconnection
     SecurityLogger.logSecurityEvent(
       SECURITY_EVENTS.SESSION_TERMINATED,
       RISK_LEVELS.LOW,
@@ -213,60 +190,59 @@ io.on('connection', (socket) => {
         sessionType: 'WEBSOCKET'
       }
     );
-    
-    // --- Start of new logic ---
-    // Remove user from our tracking object
     logger.info(`User ${socket.user.sub} disconnected. Removing from online users.`);
     delete onlineUsers[socket.user.sub];
-    
-    // Emit the updated list of online users to everyone
     io.emit('updateOnlineUsers', Object.keys(onlineUsers));
-    // --- End of new logic ---
   });
 });
+// ... (Fin de la logique Socket.IO) ...
 
 
-// --- Middleware ---
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"], // Only allow content from your own domain by default
-      scriptSrc: ["'self'"], // Allow scripts from your own domain only
-      styleSrc: ["'self'", "'unsafe-inline'"], // Allow CSS from your domain and inline styles (needed for React/Vite)
-      imgSrc: ["'self'", "data:", "blob:"], // Allow images from your domain, data URIs (QR codes), and blob URLs (file uploads)
-      connectSrc: ["'self'", "ws://localhost:*", "wss://localhost:*"], // Allow WebSocket connections for Socket.IO
-      fontSrc: ["'self'", "data:"], // Allow fonts from your domain and data URIs
-      objectSrc: ["'none'"], // Disable plugins like Flash
-      mediaSrc: ["'self'", "blob:"], // Allow media files from your domain and blob URLs
-      frameSrc: ["'none'"], // Disable iframes
-      baseUri: ["'self'"], // Restrict base tag to your domain
-      formAction: ["'self'"], // Restrict form submissions to your domain
-    },
-  },
-  crossOriginEmbedderPolicy: false, // Disable COEP for Socket.IO compatibility
-}));
-app.use(cors({
-  origin: 'http://localhost:5173', // Your React app's origin
-  credentials: true // Allow cookies to be sent
-}));
-app.use(express.json());
 const attachIo = (req, res, next) => {
   req.io = io;
   next();
 };
 app.use(attachIo);
-app.use(morgan('combined', { stream: logger.stream }));
 
+
+// --- 2. ROUTES PUBLIQUES (SANS CSRF) ---
+// <-- CHANGEMENT : Importation des contrôleurs/validateurs pour les routes publiques
+const { authLimiter } = require('./middleware/rateLimiter.middleware');
+const { loginRules, setInitialPasswordRules, handleValidationErrors } = require('./middleware/validators.middleware');
+const {
+  login,
+  refreshToken,
+  forgotPassword,
+  resetPassword
+} = require('./controllers/auth.controller');
+
+// <-- CHANGEMENT : Définition des routes publiques AVANT la protection CSRF
+app.post('/api/auth/login', authLimiter, loginRules(), handleValidationErrors, login);
+app.post('/api/auth/refresh-token', refreshToken);
+app.post('/api/auth/forgot-password', authLimiter, forgotPassword);
+app.post('/api/auth/reset-password/:token', authLimiter, setInitialPasswordRules(), handleValidationErrors, resetPassword);
+
+
+// --- 3. INITIALISATION ET ROUTES CSRF ---
+// <-- CHANGEMENT : Déplacé après les routes publiques
+const csrfProtection = csrf({ cookie: true });
+
+// <-- CHANGEMENT : La route pour obtenir le jeton vient APRÈS l'initialisation de csrfProtection
+app.get('/api/csrf-token', csrfProtection, (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
+
+// <-- CHANGEMENT : La protection est appliquée globalement APRES les routes publiques/csrf
+app.use(csrfProtection);
+
+
+// --- 4. ROUTES PRIVÉES (PROTÉGÉES PAR CSRF) ---
 // Session activity update middleware (for authenticated routes only)
 const updateSessionActivity = require('./middleware/sessionActivity.middleware');
 app.use(updateSessionActivity);
 
-// An endpoint for the frontend to get the CSRF token
-app.get('/api/csrf-token', (req, res) => {
-  res.json({ csrfToken: req.csrfToken() });
-});
-
 // --- Routes ---
+// <-- CHANGEMENT : auth.routes.js ne contient plus que les routes privées
 app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/users', require('./routes/user.routes.js'));
 app.use('/api/messages', require('./routes/message.routes.js'));

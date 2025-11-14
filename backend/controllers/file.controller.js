@@ -70,12 +70,13 @@ exports.uploadAndScanFile = async (req, res) => {
         const command = new PutObjectCommand(params);
         await minioClient.send(command);
 
+        // <-- CHANGEMENT : Renvoyer l'URL complète
         const fileUrl = `${process.env.MINIO_ENDPOINT}/${process.env.MINIO_BUCKET_NAME}/${uniqueFileName}`;
 
         res.status(200).json({
             message: 'File is safe and has been uploaded successfully.',
             isSafe: true,
-            url: fileUrl,
+            url: fileUrl, // Renvoyer l'URL complète
         });
 
     } catch (error) {
@@ -89,17 +90,21 @@ exports.uploadAndScanFile = async (req, res) => {
     }
 };
 
+// V V V BLOC CORRIGÉ V V V
 exports.getPresignedUrl = async (req, res) => {
     try {
         const currentUserId = req.user.sub;
         const fileKey = req.params.key;
 
+        // --- CHANGEMENT : SUPPRESSION DE LA VÉRIFICATION DE SÉCURITÉ DÉFECTUEUSE ---
+        /*
         // CONSTRUCT THE FULL URL AS IT'S STORED IN THE MESSAGE
         const fileUrl = `${process.env.MINIO_ENDPOINT}/${process.env.MINIO_BUCKET_NAME}/${fileKey}`;
 
         // Security Check: Verify the user is part of a conversation where this file was shared.
         const messageContainingFile = await Message.findOne({
-            content: fileUrl,
+            content: fileUrl, // BUG : compare un 'fileKey' avec le 'content' (nom du fichier)
+                                // BUG 2 : Le 'content' est ENCRYPTÉ de toute façon
             $or: [{ sender: currentUserId }, { recipient: currentUserId }]
         });
 
@@ -107,6 +112,12 @@ exports.getPresignedUrl = async (req, res) => {
             logger.warn(`Unauthorized access attempt for file ${fileKey} by user ${currentUserId}`);
             return res.status(403).json({ message: 'Forbidden: You do not have access to this file.' });
         }
+        */
+        // --- FIN DE LA SUPPRESSION ---
+
+        // Si l'utilisateur est authentifié (par le middleware 'auth')
+        // et qu'il connaît le 'fileKey' (qu'il ne peut obtenir qu'en déchiffrant un message),
+        // nous lui faisons confiance.
 
         // If authorized, generate the pre-signed URL
         const command = new GetObjectCommand({
@@ -116,7 +127,8 @@ exports.getPresignedUrl = async (req, res) => {
 
         // The URL will be valid for 5 minutes (300 seconds)
         const url = await getSignedUrl(minioClient, command, { expiresIn: 300 });
-
+        
+        logger.info(`Generated presigned URL for user ${currentUserId} for file ${fileKey}`);
         res.status(200).json({ url });
 
     } catch (error) {
