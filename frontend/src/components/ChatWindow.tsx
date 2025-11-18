@@ -242,7 +242,6 @@ const handleSendMessage = async (e: React.FormEvent) => {
       </Box>
       
       <Box className="chat-messages">
-        // Remplacez cette section dans ChatWindow.tsx (lignes 246-304)
 {messages.map((msg) => {
   // Déterminer si c'est un message avec fichier
   const isFileMessage = !!msg.fileUrl;
