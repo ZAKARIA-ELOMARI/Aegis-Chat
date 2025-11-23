@@ -6,7 +6,6 @@ services:
     ports:
       - "5173:5173"
     environment:
-      # Frontend needs to know where the API and MinIO are
       - VITE_API_URL=${VITE_API_URL}
       - VITE_MINIO_ENDPOINT_URL=${VITE_MINIO_ENDPOINT_URL}
     depends_on:
@@ -19,7 +18,6 @@ services:
     environment:
       - PORT=${PORT}
       - MONGO_URI=${MONGO_URI}
-      # Backend talks to 'minio:9000' internally
       - MINIO_ENDPOINT=${MINIO_ENDPOINT}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
@@ -30,16 +28,8 @@ services:
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
-      - mongo
       - minio
       - clamav
-
-  mongo:
-    image: mongo:6
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
 
   minio:
     image: minio/minio:latest
@@ -63,5 +53,4 @@ services:
           memory: 2G
 
 volumes:
-  mongo_data:
   minio_data:
